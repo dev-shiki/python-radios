@@ -1,0 +1,99 @@
+---
+name: Generate Tests with AI
+
+# You can run this workflow manually from the Actions tab or on certain events
+on:
+  workflow_dispatch:
+    inputs:
+      module_path:
+        description: 'Path to the module for which to generate tests (e.g., src/radios/radio_browser.py)'
+        required: true
+      coverage_threshold:
+        description: 'Minimum coverage percentage to target'
+        required: false
+        default: '80'
+  
+  # Optionally trigger on push to specific paths if you want automated test generation
+  # push:
+  #   paths:
+  #     - 'src/**/*.py'
+  #     - '!src/**/__init__.py'
+  #     - '!src/**/test_*.py'
+
+env:
+  DEFAULT_PYTHON: "3.11"
+  SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+
+jobs:
+  generate-tests:
+    name: Generate Tests with AI
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@v4.2.2
+      
+      - name: 🏗 Set up Poetry
+        run: pipx install poetry
+      
+      - name: 🏗 Set up Python ${{ env.DEFAULT_PYTHON }}
+        id: python
+        uses: actions/setup-python@v5.5.0
+        with:
+          python-version: ${{ env.DEFAULT_PYTHON }}
+          cache: "poetry"
+      
+      - name: 🏗 Install workflow dependencies
+        run: |
+          poetry config virtualenvs.create true
+          poetry config virtualenvs.in-project true
+      
+      - name: 🏗 Install project dependencies
+        run: poetry install --no-interaction
+      
+      - name: 🏗 Install AI test generation dependencies
+        run: poetry add openai pytest-coverage
+      
+      - name: 📊 Generate coverage report for existing tests
+        run: poetry run pytest --cov=${{ github.event.inputs.module_path }} --cov-report=xml
+      
+      - name: 🤖 Generate tests with AI
+        run: poetry run python .github/scripts/generate_tests.py --module ${{ github.event.inputs.module_path }} --coverage-threshold ${{ github.event.inputs.coverage_threshold }}
+      
+      - name: 🧪 Run the generated tests
+        run: poetry run pytest tests/test_${{ github.event.inputs.module_path | regex_replace('^.*\/([^\/]+)\.py
+      
+      - name: 🔄 Create Pull Request with generated tests
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "✅ Add AI-generated tests for ${{ github.event.inputs.module_path }}"
+          title: "✅ Add AI-generated tests for ${{ github.event.inputs.module_path }}"
+          body: |
+            This PR adds AI-generated tests to improve coverage for `${{ github.event.inputs.module_path }}`.
+            
+            - Target coverage threshold: ${{ github.event.inputs.coverage_threshold }}%
+            - Generated via GitHub Actions workflow
+            
+            Please review the tests and make any necessary adjustments.
+          branch: ai-generated-tests-${{ github.run_id }}
+          labels: enhancement, automated
+, '$1') }}.py -v
+      
+      - name: 📊 Generate updated coverage report
+        run: poetry run pytest --cov=${{ github.event.inputs.module_path }} --cov-report=xml
+      
+      - name: 🔄 Create Pull Request with generated tests
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "✅ Add AI-generated tests for ${{ github.event.inputs.module_path }}"
+          title: "✅ Add AI-generated tests for ${{ github.event.inputs.module_path }}"
+          body: |
+            This PR adds AI-generated tests to improve coverage for `${{ github.event.inputs.module_path }}`.
+            
+            - Target coverage threshold: ${{ github.event.inputs.coverage_threshold }}%
+            - Generated via GitHub Actions workflow
+            
+            Please review the tests and make any necessary adjustments.
+          branch: ai-generated-tests-${{ github.run_id }}
+          labels: enhancement, automated
