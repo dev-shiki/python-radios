@@ -353,12 +353,12 @@ from module import function_to_test
 # Fixtures section
 @pytest.fixture
 def mock_dependency() -> MagicMock:
-    """Create a mocked version of the dependency."""
+    #Create a mocked version of the dependency.
     return MagicMock()
 
 # Test functions section
 def test_function_success_scenario(mock_dependency):
-    """Test that function_to_test succeeds under normal conditions."""
+    #Test that function_to_test succeeds under normal conditions.
     # Arrange
     mock_dependency.return_value = expected_value
     
