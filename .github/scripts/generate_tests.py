@@ -60,7 +60,17 @@ class TestGenerator:
     
     def _find_project_root(self) -> Path:
         """Find the project root directory (containing pyproject.toml or setup.py)."""
-        current_dir = self.module_path.resolve().parent
+        # Start with the absolute path of the module
+        current_dir = self.module_path.absolute().parent
+        
+        # Check if the module path is already absolute and contains project markers
+        while current_dir != current_dir.parent:
+            if (current_dir / "pyproject.toml").exists() or (current_dir / "setup.py").exists():
+                return current_dir
+            current_dir = current_dir.parent
+        
+        # If not found with absolute path, try from the current working directory
+        current_dir = Path.cwd()
         while current_dir != current_dir.parent:
             if (current_dir / "pyproject.toml").exists() or (current_dir / "setup.py").exists():
                 return current_dir
@@ -71,15 +81,36 @@ class TestGenerator:
     
     def _get_module_name(self) -> str:
         """Convert file path to importable module name."""
-        rel_path = self.module_path.relative_to(self.project_root)
+        # Make sure both paths are absolute
+        module_abs_path = self.module_path.absolute()
+        project_root_abs = self.project_root.absolute()
+        
+        try:
+            # Try to get relative path
+            rel_path = module_abs_path.relative_to(project_root_abs)
+        except ValueError:
+            # If that fails, try to handle relative paths
+            try:
+                # Try treating module_path as relative to project_root
+                potential_abs_path = project_root_abs / self.module_path
+                if potential_abs_path.exists():
+                    rel_path = self.module_path
+                else:
+                    # If we can't figure it out, just use the module path name parts
+                    rel_path = Path(*self.module_path.parts)
+            except Exception:
+                # Last resort - just use the file name
+                rel_path = Path(self.module_path.name)
+        
         module_parts = list(rel_path.parts)
         
         # Handle src directory if present
-        if module_parts[0] == "src":
+        if module_parts and module_parts[0] == "src":
             module_parts.pop(0)
         
         # Remove .py extension
-        module_parts[-1] = module_parts[-1].replace(".py", "")
+        if module_parts and module_parts[-1].endswith('.py'):
+            module_parts[-1] = module_parts[-1].replace(".py", "")
         
         return ".".join(module_parts)
     
