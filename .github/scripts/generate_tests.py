@@ -433,7 +433,7 @@ RESULT FORMAT (just the code, no explanations):
 ```
 """
     
-    return prompt
+        return prompt
     
     def _call_ai(self, prompt: str) -> str:
         """Call the SambaNova API with the prompt and return the generated code."""
