@@ -462,14 +462,17 @@ RESULT FORMAT (just the code, no explanations):
             # Extract code block from Markdown
             code_match = re.search(r"```python\n(.*?)```", content, re.DOTALL)
             if code_match:
+                # Return ONLY the code inside the code block, without the ```python and ``` markers
                 return code_match.group(1).strip()
             
-            return content.strip()
+            # If no code block is found, return the content as is, but ensure it doesn't have markdown code markers
+            cleaned_content = re.sub(r"```python|```", "", content)
+            return cleaned_content.strip()
         
         except Exception as e:
             print(f"Error calling AI API: {e}")
             sys.exit(1)
-    
+
     def _integrate_new_tests(self, existing_tests: str, generated_tests: str) -> str:
         """Integrate newly generated tests with existing tests."""
         # Parse the existing and generated test files
