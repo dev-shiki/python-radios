@@ -400,31 +400,65 @@ VERY IMPORTANT RULES:
 3. Make sure all variables are properly defined before use.
 4. Always properly define mocks before using them.
 5. Do not use 'mock' as a variable name without defining it first.
+6. For async functions, use AsyncMock instead of MagicMock when mocking awaitable methods.
+7. When patching async methods, make sure to use AsyncMock for the return_value or side_effect.
+8. When mocking DNS resolver or any async method, use AsyncMock().
+9. Remember to set the return_value of mocked async methods with AsyncMock objects.
 
-EXAMPLE CORRECT FIXTURE USAGE:
+EXAMPLE CORRECT ASYNC FIXTURE USAGE:
 ```python
 # Imports section
+import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 # Fixtures section
 @pytest.fixture
-def mock_dependency() -> MagicMock:
-    ##Create a mocked version of the dependency.
-    return MagicMock()
+def mock_dns_resolver():
+    ##Create a mocked version of the DNS resolver.
+    with patch("radios.radio_browser.DNSResolver") as mock_resolver:
+        # Create an instance of the mock
+        mock_instance = AsyncMock()
+        # Set up the query method to return a list with one result
+        mock_result = MagicMock()
+        mock_result.host = "example.com"
+        mock_instance.query.return_value = [mock_result]
+        # Set the mock_resolver to return our mock_instance when called
+        mock_resolver.return_value = mock_instance
+        yield mock_resolver
+
+@pytest.fixture
+def mock_aiohttp_session():
+    ##Create a mocked version of the aiohttp.ClientSession.
+    with patch("radios.radio_browser.aiohttp.ClientSession") as mock_session:
+        # Create an AsyncMock for the response
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.headers = {"Content-Type": "application/json"}
+        mock_response.text.return_value = '{"status": "ok"}'
+        
+        # Set up the session request to return our mock response
+        session_instance = AsyncMock()
+        session_instance.request.return_value = mock_response
+        mock_session.return_value = session_instance
+        
+        yield mock_session
 
 # Test functions section with fixture as parameter
-def test_function_success_scenario(mock_dependency):
+@pytest.mark.asyncio
+async def test_function_success_scenario(mock_dns_resolver, mock_aiohttp_session):
     ##Test that function_to_test succeeds under normal conditions.
     # Arrange
-    mock_dependency.return_value = "expected_value"
+    from radios.radio_browser import RadioBrowser
     
     # Act
-    result = function_to_test(mock_dependency)
+    radio = RadioBrowser(user_agent="Test")
+    result = await radio.stats()
     
     # Assert
-    assert result == "expected_value"
-    mock_dependency.assert_called_once()
+    assert result is not None
+    mock_dns_resolver.return_value.query.assert_called_once()
+    mock_aiohttp_session.return_value.request.assert_called_once()
 ```
 
 RESULT FORMAT (just the code, no explanations):
