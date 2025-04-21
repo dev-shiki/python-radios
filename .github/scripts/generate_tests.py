@@ -326,7 +326,7 @@ MODULE SOURCE CODE:
 
 UNCOVERED FUNCTIONS NEEDING TESTS:
 """
-        
+    
         for func_name, details in uncovered_functions.items():
             is_async = details.get("is_async", False)
             args = details.get("args", [])
@@ -394,30 +394,36 @@ CODE FORMAT RULES:
 5. Include proper type hints where appropriate
 6. Add appropriate parametrize decorators for testing multiple scenarios
 
-EXAMPLE TEST STRUCTURE:
+VERY IMPORTANT RULES:
+1. NEVER call fixtures directly within test functions! Always pass them as parameters to the test functions.
+2. When using a fixture, ALWAYS include it as a parameter to the test function.
+3. Make sure all variables are properly defined before use.
+4. Always properly define mocks before using them.
+5. Do not use 'mock' as a variable name without defining it first.
+
+EXAMPLE CORRECT FIXTURE USAGE:
 ```python
 # Imports section
 import pytest
-from unittest.mock import MagicMock, patch
-from module import function_to_test
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # Fixtures section
 @pytest.fixture
 def mock_dependency() -> MagicMock:
-    #Create a mocked version of the dependency.
+    ##Create a mocked version of the dependency.
     return MagicMock()
 
-# Test functions section
+# Test functions section with fixture as parameter
 def test_function_success_scenario(mock_dependency):
-    #Test that function_to_test succeeds under normal conditions.
+    ##Test that function_to_test succeeds under normal conditions.
     # Arrange
-    mock_dependency.return_value = expected_value
+    mock_dependency.return_value = "expected_value"
     
     # Act
     result = function_to_test(mock_dependency)
     
     # Assert
-    assert result == expected_value
+    assert result == "expected_value"
     mock_dependency.assert_called_once()
 ```
 
@@ -426,8 +432,8 @@ RESULT FORMAT (just the code, no explanations):
 # Complete test file with imports, fixtures, and test functions
 ```
 """
-        
-        return prompt
+    
+    return prompt
     
     def _call_ai(self, prompt: str) -> str:
         """Call the SambaNova API with the prompt and return the generated code."""
