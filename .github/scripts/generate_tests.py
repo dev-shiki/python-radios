@@ -116,21 +116,48 @@ class TestGenerator:
     
     def _get_test_file_path(self) -> Path:
         """Determine the location for the test file."""
-        module_dir = self.module_path.parent
-        filename = f"test_{self.module_path.stem}.py"
+        # Get absolute paths
+        module_abs_path = self.module_path.absolute()
+        project_root_abs = self.project_root.absolute()
+        
+        # Extract module directory
+        module_dir = module_abs_path.parent
+        filename = f"test_{module_abs_path.stem}.py"
         
         # Check if tests directory exists at project root
-        tests_dir = self.project_root / "tests"
+        tests_dir = project_root_abs / "tests"
         if tests_dir.exists() and tests_dir.is_dir():
-            # Create matching path structure under tests directory
-            rel_path = module_dir.relative_to(self.project_root / "src" if (self.project_root / "src").exists() else self.project_root)
-            test_dir = tests_dir / rel_path
+            # Check if there's a src directory
+            src_dir = project_root_abs / "src"
+            if src_dir.exists() and module_abs_path.is_relative_to(src_dir):
+                # Get path relative to src directory
+                try:
+                    rel_path = module_abs_path.parent.relative_to(src_dir)
+                    test_dir = tests_dir / rel_path
+                except ValueError:
+                    # Fallback if relative_to fails
+                    rel_parts = []
+                    for part in module_abs_path.parent.parts:
+                        if part == "src":
+                            continue
+                        rel_parts.append(part)
+                    test_dir = tests_dir / Path(*rel_parts)
+            else:
+                # Try to get relative path directly to project root
+                try:
+                    rel_path = module_abs_path.parent.relative_to(project_root_abs)
+                    test_dir = tests_dir / rel_path
+                except ValueError:
+                    # Fallback to using just the module directory name
+                    test_dir = tests_dir / module_abs_path.parent.name
+                    
+            # Create directory if it doesn't exist
             test_dir.mkdir(parents=True, exist_ok=True)
             return test_dir / filename
         
         # Fall back to creating test in the same directory as the module
         return module_dir / filename
-    
+        
     def _load_module(self):
         """Import the module dynamically."""
         try:
