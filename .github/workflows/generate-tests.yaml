@@ -1,33 +1,143 @@
 ---
-name: Generate Tests with AI
+name: Auto Generate Tests with AI
 
-# You can run this workflow manually from the Actions tab or on certain events
+# You can run this workflow manually from the Actions tab or schedule it
 on:
   workflow_dispatch:
     inputs:
-      module_path:
-        description: 'Path to the module for which to generate tests (e.g., src/radios/radio_browser.py)'
-        required: true
       coverage_threshold:
         description: 'Minimum coverage percentage to target'
         required: false
         default: '80'
+      max_modules:
+        description: 'Maximum number of modules to analyze (0 = no limit)'
+        required: false
+        default: '5'
   
-  # Optionally trigger on push to specific paths if you want automated test generation
-  # push:
-  #   paths:
-  #     - 'src/**/*.py'
-  #     - '!src/**/__init__.py'
-  #     - '!src/**/test_*.py'
+  # Optionally run on schedule (e.g., weekly)
+  # schedule:
+  #   - cron: '0 0 * * 0'  # Runs at midnight on Sunday
 
 env:
   DEFAULT_PYTHON: "3.11"
   SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
 
 jobs:
-  generate-tests:
-    name: Generate Tests with AI
+  find-modules:
+    name: Find Modules Needing Tests
     runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.find-modules.outputs.modules }}
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@v4.2.2
+      
+      - name: 🏗 Set up Poetry
+        run: pipx install poetry
+      
+      - name: 🏗 Set up Python ${{ env.DEFAULT_PYTHON }}
+        id: python
+        uses: actions/setup-python@v5.5.0
+        with:
+          python-version: ${{ env.DEFAULT_PYTHON }}
+          cache: "poetry"
+      
+      - name: 🏗 Install workflow dependencies
+        run: |
+          poetry config virtualenvs.create true
+          poetry config virtualenvs.in-project true
+      
+      - name: 🏗 Install project dependencies
+        run: poetry install --no-interaction
+      
+      - name: 🏗 Install coverage tools
+        run: poetry add pytest-coverage
+      
+      - name: 📊 Run coverage analysis
+        run: poetry run pytest --cov=src --cov-report=xml
+      
+      - name: 🔍 Find modules needing tests
+        id: find-modules
+        run: |
+          # Create Python script to find modules with coverage below threshold
+          cat > find_low_coverage_modules.py << 'EOF'
+          import sys
+          import xml.etree.ElementTree as ET
+          import json
+          import os
+          from pathlib import Path
+          
+          def find_low_coverage_modules(coverage_file, threshold, max_modules):
+              # Parse the coverage XML file
+              tree = ET.parse(coverage_file)
+              root = tree.getroot()
+              
+              # Find all Python modules and their coverage
+              modules = []
+              for class_elem in root.findall('.//class'):
+                  filename = class_elem.attrib.get('filename')
+                  
+                  # Skip tests, __init__.py, and non-src files
+                  if (not filename.startswith('src/') or 
+                      '/test_' in filename or 
+                      '/__init__.py' in filename or
+                      not filename.endswith('.py')):
+                      continue
+                  
+                  # Calculate coverage
+                  line_rate = float(class_elem.attrib.get('line-rate', 0))
+                  coverage_pct = line_rate * 100
+                  
+                  # Add to list if below threshold
+                  if coverage_pct < float(threshold):
+                      modules.append({
+                          'path': filename,
+                          'coverage': coverage_pct
+                      })
+              
+              # Sort by coverage (lowest first)
+              modules.sort(key=lambda x: x['coverage'])
+              
+              # Limit to max_modules if specified
+              if max_modules > 0:
+                  modules = modules[:max_modules]
+              
+              return modules
+          
+          if __name__ == "__main__":
+              coverage_file = "coverage.xml"
+              threshold = float(sys.argv[1]) if len(sys.argv) > 1 else 80.0
+              max_modules = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+              
+              if not os.path.exists(coverage_file):
+                  print("Coverage file not found.")
+                  sys.exit(1)
+              
+              modules = find_low_coverage_modules(coverage_file, threshold, max_modules)
+              print(f"Found {len(modules)} modules with coverage below {threshold}%")
+              
+              # Output in GitHub Actions format
+              modules_json = json.dumps([m['path'] for m in modules])
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f"modules={modules_json}\n")
+              
+              # Print details for logging
+              for module in modules:
+                  print(f"{module['path']}: {module['coverage']:.2f}%")
+          EOF
+          
+          # Run the script
+          poetry run python find_low_coverage_modules.py ${{ github.event.inputs.coverage_threshold }} ${{ github.event.inputs.max_modules }}
+
+  generate-tests:
+    needs: find-modules
+    if: ${{ fromJson(needs.find-modules.outputs.modules)[0] != null }}
+    name: Generate Tests for ${{ matrix.module }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: ${{ fromJson(needs.find-modules.outputs.modules) }}
+      fail-fast: false
     steps:
       - name: ⤵️ Check out code from GitHub
         uses: actions/checkout@v4.2.2
@@ -54,29 +164,71 @@ jobs:
         run: poetry add openai pytest-coverage
       
       - name: 📊 Generate coverage report for existing tests
-        run: poetry run pytest --cov=${{ github.event.inputs.module_path }} --cov-report=xml
+        run: poetry run pytest --cov=${{ matrix.module }} --cov-report=xml
       
       - name: 🤖 Generate tests with AI
-        run: poetry run python .github/scripts/generate_tests.py --module ${{ github.event.inputs.module_path }} --coverage-threshold ${{ github.event.inputs.coverage_threshold }}
+        run: poetry run python .github/scripts/generate_tests.py --module ${{ matrix.module }} --coverage-threshold ${{ github.event.inputs.coverage_threshold }}
       
       - name: 🧪 Run the generated tests
-        run: poetry run pytest tests/test_${{ github.event.inputs.module_path | regex_replace('^.*\/([^\/]+)\.py$', '$1') }}.py -v
+        run: |
+          # Extract the module name from the path
+          MODULE_NAME=$(basename ${{ matrix.module }} .py)
+          # Find the test file
+          TEST_FILE=$(find tests -name "test_${MODULE_NAME}.py" -type f)
+          # Run the test if it exists
+          if [ -n "$TEST_FILE" ]; then
+            poetry run pytest $TEST_FILE -v
+          else
+            echo "Test file for ${MODULE_NAME} not found"
+            exit 1
+          fi
       
       - name: 📊 Generate updated coverage report
-        run: poetry run pytest --cov=${{ github.event.inputs.module_path }} --cov-report=xml
+        run: poetry run pytest --cov=${{ matrix.module }} --cov-report=xml
+      
+      - name: 💾 Store generated test files
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: test-${{ matrix.module }}
+          path: |
+            tests/**/test_*.py
+            !tests/**/__pycache__/**
+  
+  create-pr:
+    name: Create Pull Request with Generated Tests
+    needs: generate-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@v4.2.2
+      
+      - name: ⬇️ Download all test artifacts
+        uses: actions/download-artifact@v4.2.1
+        with:
+          path: downloaded-tests
+          merge-multiple: false
+      
+      - name: 📂 Copy test files to repository
+        run: |
+          # Process each artifact directory
+          for ARTIFACT_DIR in downloaded-tests/*; do
+            if [ -d "$ARTIFACT_DIR" ]; then
+              # Copy all test files to the tests directory
+              cp -r $ARTIFACT_DIR/tests/* tests/
+              echo "Copied tests from $(basename $ARTIFACT_DIR)"
+            fi
+          done
       
       - name: 🔄 Create Pull Request with generated tests
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "✅ Add AI-generated tests for ${{ github.event.inputs.module_path }}"
-          title: "✅ Add AI-generated tests for ${{ github.event.inputs.module_path }}"
+          commit-message: "✅ Add AI-generated tests for modules with low coverage"
+          title: "✅ Add AI-generated tests for modules with low coverage"
           body: |
-            This PR adds AI-generated tests to improve coverage for `${{ github.event.inputs.module_path }}`.
+            This PR adds AI-generated tests to improve coverage for modules with coverage below ${{ github.event.inputs.coverage_threshold }}%.
             
-            - Target coverage threshold: ${{ github.event.inputs.coverage_threshold }}%
-            - Generated via GitHub Actions workflow
-            - Tests have been validated and revised if needed
+            The tests were generated and validated automatically using the SambaNova API with Meta-Llama-3.1-8B-Instruct.
             
             Please review the tests and make any necessary adjustments.
           branch: ai-generated-tests-${{ github.run_id }}
