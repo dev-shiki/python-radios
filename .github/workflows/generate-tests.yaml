@@ -60,24 +60,7 @@ jobs:
         run: poetry run python .github/scripts/generate_tests.py --module ${{ github.event.inputs.module_path }} --coverage-threshold ${{ github.event.inputs.coverage_threshold }}
       
       - name: 🧪 Run the generated tests
-        run: poetry run pytest tests/test_${{ github.event.inputs.module_path | regex_replace('^.*\/([^\/]+)\.py
-      
-      - name: 🔄 Create Pull Request with generated tests
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "✅ Add AI-generated tests for ${{ github.event.inputs.module_path }}"
-          title: "✅ Add AI-generated tests for ${{ github.event.inputs.module_path }}"
-          body: |
-            This PR adds AI-generated tests to improve coverage for `${{ github.event.inputs.module_path }}`.
-            
-            - Target coverage threshold: ${{ github.event.inputs.coverage_threshold }}%
-            - Generated via GitHub Actions workflow
-            
-            Please review the tests and make any necessary adjustments.
-          branch: ai-generated-tests-${{ github.run_id }}
-          labels: enhancement, automated
-, '$1') }}.py -v
+        run: poetry run pytest tests/test_${{ github.event.inputs.module_path | regex_replace('^.*\/([^\/]+)\.py$', '$1') }}.py -v
       
       - name: 📊 Generate updated coverage report
         run: poetry run pytest --cov=${{ github.event.inputs.module_path }} --cov-report=xml
@@ -93,6 +76,7 @@ jobs:
             
             - Target coverage threshold: ${{ github.event.inputs.coverage_threshold }}%
             - Generated via GitHub Actions workflow
+            - Tests have been validated and revised if needed
             
             Please review the tests and make any necessary adjustments.
           branch: ai-generated-tests-${{ github.run_id }}
