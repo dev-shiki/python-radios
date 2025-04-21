@@ -45,7 +45,8 @@ class TestGenerator:
             module_path: Path to the module to generate tests for
             coverage_threshold: Target coverage percentage to achieve
         """
-        self.module_path = Path(module_path)
+        # Convert to Path and resolve to absolute path
+        self.module_path = Path(module_path).resolve()
         self.coverage_threshold = coverage_threshold
         self.project_root = self._find_project_root()
         
@@ -81,82 +82,49 @@ class TestGenerator:
     
     def _get_module_name(self) -> str:
         """Convert file path to importable module name."""
-        # Make sure both paths are absolute
-        module_abs_path = self.module_path.absolute()
-        project_root_abs = self.project_root.absolute()
-        
+        # Start with the module path relative to the project root
         try:
-            # Try to get relative path
-            rel_path = module_abs_path.relative_to(project_root_abs)
+            rel_path = self.module_path.relative_to(self.project_root)
         except ValueError:
-            # If that fails, try to handle relative paths
-            try:
-                # Try treating module_path as relative to project_root
-                potential_abs_path = project_root_abs / self.module_path
-                if potential_abs_path.exists():
-                    rel_path = self.module_path
-                else:
-                    # If we can't figure it out, just use the module path name parts
-                    rel_path = Path(*self.module_path.parts)
-            except Exception:
-                # Last resort - just use the file name
-                rel_path = Path(self.module_path.name)
+            # Fallback to just using the module name
+            rel_path = Path(self.module_path.name)
         
-        module_parts = list(rel_path.parts)
+        parts = list(rel_path.parts)
         
-        # Handle src directory if present
-        if module_parts and module_parts[0] == "src":
-            module_parts.pop(0)
+        # Handle src directory
+        if parts and parts[0] == "src":
+            parts.pop(0)
         
         # Remove .py extension
-        if module_parts and module_parts[-1].endswith('.py'):
-            module_parts[-1] = module_parts[-1].replace(".py", "")
+        if parts and parts[-1].endswith('.py'):
+            parts[-1] = parts[-1][:-3]  # Remove .py extension
         
-        return ".".join(module_parts)
+        return ".".join(parts)
     
     def _get_test_file_path(self) -> Path:
         """Determine the location for the test file."""
-        # Get absolute paths
-        module_abs_path = self.module_path.absolute()
-        project_root_abs = self.project_root.absolute()
+        filename = f"test_{self.module_path.stem}.py"
         
-        # Extract module directory
-        module_dir = module_abs_path.parent
-        filename = f"test_{module_abs_path.stem}.py"
-        
-        # Check if tests directory exists at project root
-        tests_dir = project_root_abs / "tests"
+        # Look for tests directory
+        tests_dir = self.project_root / "tests"
         if tests_dir.exists() and tests_dir.is_dir():
-            # Check if there's a src directory
-            src_dir = project_root_abs / "src"
-            if src_dir.exists() and module_abs_path.is_relative_to(src_dir):
-                # Get path relative to src directory
+            # Check if the module is in a src directory
+            src_path = self.project_root / "src"
+            if src_path.exists() and str(self.module_path).startswith(str(src_path)):
+                # Create matching structure under tests
                 try:
-                    rel_path = module_abs_path.parent.relative_to(src_dir)
+                    rel_path = self.module_path.parent.relative_to(src_path)
                     test_dir = tests_dir / rel_path
-                except ValueError:
-                    # Fallback if relative_to fails
-                    rel_parts = []
-                    for part in module_abs_path.parent.parts:
-                        if part == "src":
-                            continue
-                        rel_parts.append(part)
-                    test_dir = tests_dir / Path(*rel_parts)
-            else:
-                # Try to get relative path directly to project root
-                try:
-                    rel_path = module_abs_path.parent.relative_to(project_root_abs)
-                    test_dir = tests_dir / rel_path
-                except ValueError:
-                    # Fallback to using just the module directory name
-                    test_dir = tests_dir / module_abs_path.parent.name
-                    
-            # Create directory if it doesn't exist
-            test_dir.mkdir(parents=True, exist_ok=True)
-            return test_dir / filename
+                    test_dir.mkdir(parents=True, exist_ok=True)
+                    return test_dir / filename
+                except Exception:
+                    pass
+            
+            # Fallback - put the test directly in the tests directory
+            return tests_dir / filename
         
-        # Fall back to creating test in the same directory as the module
-        return module_dir / filename
+        # If no tests directory is found, create the test in the same directory as the module
+        return self.module_path.parent / filename
         
     def _load_module(self):
         """Import the module dynamically."""
@@ -236,58 +204,83 @@ class TestGenerator:
     
     def get_uncovered_functions(self) -> Dict[str, Dict]:
         """Identify functions with insufficient test coverage."""
-        cov = Coverage()
-        
-        # Load coverage data if it exists
-        cov.load()
-        
-        # Get coverage data for the module
-        module_data = cov.get_data().get_file_data(str(self.module_path.resolve()))
-        
-        if not module_data:
-            # If no coverage data, assume all functions need tests
-            return self.function_signatures
-        
-        # Extract uncovered line numbers
-        uncovered_lines = set(line for line in module_data['lines'] if line not in module_data['executed_lines'])
-        
-        # Identify functions with uncovered lines
-        uncovered_functions = {}
-        for node in ast.walk(self.module_ast):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                func_name = node.name
-                
-                # Skip private methods
-                if func_name.startswith("_") and not (func_name.startswith("__") and func_name.endswith("__")):
-                    continue
-                
-                function_lines = set(range(node.lineno, node.end_lineno + 1))
-                
-                # If the function has uncovered lines, add it to the list
-                if function_lines.intersection(uncovered_lines):
-                    if func_name in self.function_signatures:
-                        uncovered_functions[func_name] = self.function_signatures[func_name]
+        try:
+            # Initialize coverage
+            cov = Coverage()
             
-            elif isinstance(node, ast.ClassDef):
-                class_name = node.name
+            # Try to load existing coverage data
+            try:
+                cov.load()
+            except:
+                # If loading fails, return all functions as uncovered
+                print("No coverage data found, assuming all functions need tests")
+                return self.function_signatures
+            
+            # Get the absolute path to the module
+            module_path_str = str(self.module_path.resolve())
+            
+            # Get coverage data for the module
+            data = cov.get_data()
+            
+            # Check if the module is in the coverage data
+            if module_path_str not in data.measured_files():
+                # Module not in coverage data, assume all functions need tests
+                print(f"Module {module_path_str} not found in coverage data, assuming all functions need tests")
+                return self.function_signatures
+            
+            # Get line execution information
+            line_data = data.lines(module_path_str)
+            executed_lines = set(data.lines(module_path_str) or [])
+            
+            # Get all lines in the file
+            with open(module_path_str, 'r') as f:
+                total_lines = set(range(1, len(f.readlines()) + 1))
+            
+            # Calculate uncovered lines
+            uncovered_lines = total_lines - executed_lines
+            
+            # Identify functions with uncovered lines
+            uncovered_functions = {}
+            for node in ast.walk(self.module_ast):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    func_name = node.name
+                    
+                    # Skip private methods that aren't dunder methods
+                    if func_name.startswith("_") and not (func_name.startswith("__") and func_name.endswith("__")):
+                        continue
+                    
+                    # Get all lines in the function
+                    function_lines = set(range(node.lineno, node.end_lineno + 1))
+                    
+                    # If the function has uncovered lines, add it to the list
+                    if function_lines.intersection(uncovered_lines):
+                        if func_name in self.function_signatures:
+                            uncovered_functions[func_name] = self.function_signatures[func_name]
                 
-                for method in node.body:
-                    if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        method_name = method.name
-                        
-                        # Skip private methods
-                        if method_name.startswith("_") and not (method_name.startswith("__") and method_name.endswith("__")):
-                            continue
-                        
-                        full_name = f"{class_name}.{method_name}"
-                        method_lines = set(range(method.lineno, method.end_lineno + 1))
-                        
-                        # If the method has uncovered lines, add it to the list
-                        if method_lines.intersection(uncovered_lines):
-                            if full_name in self.function_signatures:
-                                uncovered_functions[full_name] = self.function_signatures[full_name]
-        
-        return uncovered_functions
+                elif isinstance(node, ast.ClassDef):
+                    class_name = node.name
+                    
+                    for method in node.body:
+                        if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                            method_name = method.name
+                            
+                            # Skip private methods
+                            if method_name.startswith("_") and not (method_name.startswith("__") and method_name.endswith("__")):
+                                continue
+                            
+                            full_name = f"{class_name}.{method_name}"
+                            method_lines = set(range(method.lineno, method.end_lineno + 1))
+                            
+                            # If the method has uncovered lines, add it to the list
+                            if method_lines.intersection(uncovered_lines):
+                                if full_name in self.function_signatures:
+                                    uncovered_functions[full_name] = self.function_signatures[full_name]
+            
+            return uncovered_functions
+        except Exception as e:
+            print(f"Error getting uncovered functions: {e}")
+            # If something goes wrong, return all functions as uncovered
+            return self.function_signatures
     
     def generate_tests(self) -> str:
         """Generate tests for uncovered functions using AI."""
