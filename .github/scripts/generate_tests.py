@@ -30,6 +30,13 @@ openai.base_url = "https://api.sambanova.ai/v1"
 # Configure the AI model to use
 AI_MODEL = "Meta-Llama-3.1-8B-Instruct"
 
+def add_parent_refs(tree):
+    """Add parent references to all nodes in the AST."""
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            child.parent = node
+    return tree
+
 class TestGenerator:
     """Generate tests for Python modules using AI."""
 
@@ -128,7 +135,12 @@ class TestGenerator:
         """Parse the module into an AST."""
         try:
             with open(self.module_path, "r", encoding="utf-8") as f:
-                return ast.parse(f.read())
+                module_ast = ast.parse(f.read())
+                # Add parent references to all nodes
+                for node in ast.walk(module_ast):
+                    for child in ast.iter_child_nodes(node):
+                        setattr(child, 'parent', node)
+                return module_ast
         except Exception as e:
             print(f"Error parsing module {self.module_path}: {e}")
             sys.exit(1)
@@ -220,24 +232,32 @@ class TestGenerator:
         """Extract function and method signatures from the module."""
         functions = {}
         
+        # First, find top-level functions (not class methods)
         for node in ast.walk(self.module_ast):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not isinstance(node.parent, ast.ClassDef):
-                func_name = node.name
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                # Check if this function is a method of a class
+                is_method = False
+                parent = getattr(node, 'parent', None)
+                if parent and isinstance(parent, ast.ClassDef):
+                    is_method = True
                 
-                # Skip private functions and dunder methods that aren't meant to be directly called
-                if func_name.startswith("_") and not (func_name.startswith("__") and func_name.endswith("__")):
-                    continue
-                
-                # Extract function parameters
-                params = []
-                for arg in node.args.args:
-                    params.append(arg.arg)
-                
-                functions[func_name] = {
-                    "params": params,
-                    "is_async": isinstance(node, ast.AsyncFunctionDef),
-                    "docstring": ast.get_docstring(node) or ""
-                }
+                if not is_method:
+                    func_name = node.name
+                    
+                    # Skip private functions and dunder methods that aren't meant to be directly called
+                    if func_name.startswith("_") and not (func_name.startswith("__") and func_name.endswith("__")):
+                        continue
+                    
+                    # Extract function parameters
+                    params = []
+                    for arg in node.args.args:
+                        params.append(arg.arg)
+                    
+                    functions[func_name] = {
+                        "params": params,
+                        "is_async": isinstance(node, ast.AsyncFunctionDef),
+                        "docstring": ast.get_docstring(node) or ""
+                    }
         
         # Now extract class methods
         for class_name, class_info in self.class_signatures.items():
