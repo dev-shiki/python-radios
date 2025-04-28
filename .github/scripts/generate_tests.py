@@ -220,8 +220,16 @@ class TestGenerator:
         """Extract function and method signatures from the module."""
         functions = {}
         
+        # First, build a lookup to identify nodes inside class definitions
+        class_nodes = {}
         for node in ast.walk(self.module_ast):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not isinstance(node.parent, ast.ClassDef):
+            if isinstance(node, ast.ClassDef):
+                for child in node.body:
+                    class_nodes[child] = node
+        
+        # Now find top-level functions (not inside classes)
+        for node in ast.walk(self.module_ast):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node not in class_nodes:
                 func_name = node.name
                 
                 # Skip private functions and dunder methods that aren't meant to be directly called
