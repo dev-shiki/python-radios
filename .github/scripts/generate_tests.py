@@ -33,7 +33,7 @@ openai.api_key = os.environ.get("SAMBANOVA_API_KEY")
 openai.base_url = "https://api.sambanova.ai/v1"
 
 # Configure the AI model to use
-AI_MODEL = "Meta-Llama-3.1-8B-Instruct"
+AI_MODEL = "Meta-Llama-3.3-70B-Instruct"
 
 class TestGenerator:
     """Generate tests for Python modules using AI."""
