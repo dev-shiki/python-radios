@@ -351,7 +351,6 @@ EXISTING TESTS (if any):
 TEST GENERATION REQUIREMENTS:
 
 1. Generate pytest test functions with descriptive names that explain what they're testing
-2. Use pytest.mark.asyncio for async functions to properly test them
 3. For class methods, create appropriate test fixtures that properly mock dependencies
 4. Include ALL necessary import statements at the top
 5. Create realistic mocks for external dependencies like aiohttp, requests, filesystem, etc.
