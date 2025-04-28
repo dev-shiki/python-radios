@@ -30,13 +30,6 @@ openai.base_url = "https://api.sambanova.ai/v1"
 # Configure the AI model to use
 AI_MODEL = "Meta-Llama-3.1-8B-Instruct"
 
-def add_parent_refs(tree):
-    """Add parent references to all nodes in the AST."""
-    for node in ast.walk(tree):
-        for child in ast.iter_child_nodes(node):
-            child.parent = node
-    return tree
-
 class TestGenerator:
     """Generate tests for Python modules using AI."""
 
@@ -135,12 +128,7 @@ class TestGenerator:
         """Parse the module into an AST."""
         try:
             with open(self.module_path, "r", encoding="utf-8") as f:
-                module_ast = ast.parse(f.read())
-                # Add parent references to all nodes
-                for node in ast.walk(module_ast):
-                    for child in ast.iter_child_nodes(node):
-                        setattr(child, 'parent', node)
-                return module_ast
+                return ast.parse(f.read())
         except Exception as e:
             print(f"Error parsing module {self.module_path}: {e}")
             sys.exit(1)
@@ -232,32 +220,24 @@ class TestGenerator:
         """Extract function and method signatures from the module."""
         functions = {}
         
-        # First, find top-level functions (not class methods)
         for node in ast.walk(self.module_ast):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                # Check if this function is a method of a class
-                is_method = False
-                parent = getattr(node, 'parent', None)
-                if parent and isinstance(parent, ast.ClassDef):
-                    is_method = True
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not isinstance(node.parent, ast.ClassDef):
+                func_name = node.name
                 
-                if not is_method:
-                    func_name = node.name
-                    
-                    # Skip private functions and dunder methods that aren't meant to be directly called
-                    if func_name.startswith("_") and not (func_name.startswith("__") and func_name.endswith("__")):
-                        continue
-                    
-                    # Extract function parameters
-                    params = []
-                    for arg in node.args.args:
-                        params.append(arg.arg)
-                    
-                    functions[func_name] = {
-                        "params": params,
-                        "is_async": isinstance(node, ast.AsyncFunctionDef),
-                        "docstring": ast.get_docstring(node) or ""
-                    }
+                # Skip private functions and dunder methods that aren't meant to be directly called
+                if func_name.startswith("_") and not (func_name.startswith("__") and func_name.endswith("__")):
+                    continue
+                
+                # Extract function parameters
+                params = []
+                for arg in node.args.args:
+                    params.append(arg.arg)
+                
+                functions[func_name] = {
+                    "params": params,
+                    "is_async": isinstance(node, ast.AsyncFunctionDef),
+                    "docstring": ast.get_docstring(node) or ""
+                }
         
         # Now extract class methods
         for class_name, class_info in self.class_signatures.items():
@@ -323,19 +303,11 @@ class TestGenerator:
         # Format function signatures for the prompt
         function_signatures_str = json.dumps(self.function_signatures, indent=2)
         
-        # Get the imports from the module to help inform the AI
-        imports_str = "\n".join(self.imports)
-        
         prompt = f"""As an expert Python testing specialist, generate pytest test functions for a Python module.
 
 MODULE SOURCE CODE:
 ```python
 {module_source}
-```
-
-MODULE IMPORTS:
-```python
-{imports_str}
 ```
 
 CLASS SIGNATURES:
@@ -352,9 +324,6 @@ MODULE NAME: {self.module_name}
 MODULE PATH: {self.module_path}
 TEST FILE PATH: {self.test_file_path}
 
-IMPORTANT NOTE: This project uses the 'aresponses' package (NOT 'aioresponses') for mocking HTTP requests.
-Import it with: from aresponses import ResponsesMockServer
-
 EXISTING TESTS (if any):
 """
         
@@ -367,7 +336,15 @@ EXISTING TESTS (if any):
 
 TEST GENERATION REQUIREMENTS:
 
-1. FIXTURE CREATION:
+1. REQUIRED IMPORTS:
+   - Always include these imports for testing async code:
+     ```python
+     import pytest
+     from unittest.mock import AsyncMock, MagicMock, patch
+     ```
+   - Never use `asyncio.Mock` or similar - always use `unittest.mock.AsyncMock`
+
+2. FIXTURE CREATION:
    - Create fixtures for all dependencies needed in tests
    - For classes, create fixtures that properly initialize all required arguments
    - For RadioBrowser and similar classes, ALWAYS include user_agent and other required parameters
@@ -375,80 +352,48 @@ TEST GENERATION REQUIREMENTS:
      ```python
      @pytest.fixture
      def mock_session():
-         ##Create a mock session.
-         return AsyncMock()
+         # Create a mock session.
+         return MagicMock()
          
      @pytest.fixture
      def radio_browser(mock_session):
-         ##Return a RadioBrowser instance.
+         # Return a RadioBrowser instance.
          return RadioBrowser(user_agent="TestAgent", session=mock_session)
-     ```
-
-2. MOCKING HTTP REQUESTS:
-   - Use aresponses (not aioresponses) library for mocking HTTP requests
-   - Import with: from aresponses import ResponsesMockServer
-   - Use @pytest.fixture for setting up aresponses:
-     ```python
-     @pytest.fixture
-     def aresponses(event_loop):
-         with ResponsesMockServer() as server:
-             yield server
-     ```
-   - Configure responses:
-     ```python
-     aresponses.add(
-         "example.com",
-         "/test",
-         "GET",
-         aresponses.Response(
-             status=200,
-             headers={"Content-Type": "application/json"},
-             text='{"status": "ok"}',
-         ),
-     )
      ```
 
 3. ASYNC TESTING:
    - Use @pytest.mark.asyncio for async test functions
-   - Use AsyncMock() for mocking async functions and methods
+   - Use AsyncMock() from unittest.mock for mocking async functions and methods
    - For async HTTP clients, make sure response methods are properly mocked
    - Example:
      ```python
      @pytest.mark.asyncio
-     async def test_async_method(radio_browser, aresponses):
+     async def test_async_method(radio_browser, mock_session):
          # Setup
-         aresponses.add(
-             "api.radio-browser.info",
-             "/json/stations",
-             "GET",
-             aresponses.Response(
-                 status=200,
-                 headers={"Content-Type": "application/json"},
-                 text='[{"result": "success"}]',
-             ),
-         )
+         mock_response = AsyncMock()
+         mock_response.text.return_value = '{"result": "success"}'
+         mock_session.request.return_value = mock_response
          
          # Test
-         result = await radio_browser.stations()
+         result = await radio_browser.method()
          
          # Assert
          assert result is not None
-         assert isinstance(result, list)
      ```
 
-3. MOCKING STRATEGY:
+4. MOCKING STRATEGY:
    - Use mock_session.request.return_value = AsyncMock() for HTTP responses
    - Always set all required attributes on mocked responses (status, headers, text, etc.)
    - When mocking JSON responses, use proper string values: '{"key": "value"}'
    - For binary responses: `mock_response.return_value = b'{"key": "value"}'`
 
-4. TEST COVERAGE:
+5. TEST COVERAGE:
    - Include tests for success and error cases
    - Test edge cases like empty responses or error handling
    - Verify correct parameters are passed to dependencies
 
 STRUCTURE OF THE TEST FILE:
-1. Import statements
+1. Import statements (ALWAYS include unittest.mock import, NEVER use asyncio.Mock)
 2. Fixtures (setup, mocks, etc.)
 3. Tests for module functions
 4. Tests for each class and its methods
@@ -476,9 +421,10 @@ RESULT FORMAT:
                         "role": "system", 
                         "content": (
                             "You are an expert Python testing specialist with deep knowledge of pytest, "
-                            "unittest.mock, and the aresponses package. Your specialty is writing "
+                            "unittest.mock, and testing best practices. Your specialty is writing "
                             "comprehensive, effective test suites that achieve high code coverage. "
-                            "You always use 'aresponses' package for mocking HTTP requests, NOT 'aioresponses'."
+                            "IMPORTANT: You know to ALWAYS use unittest.mock.AsyncMock for mocking "
+                            "async functions, never asyncio.Mock which doesn't exist."
                         )
                     },
                     {"role": "user", "content": prompt}
@@ -613,15 +559,46 @@ ERROR MESSAGE:
 
 Please analyze the error message and fix the issues in the test code. Provide only the corrected code without explanations.
 
+IMPORTANT NOTES:
+1. Always use unittest.mock.AsyncMock for mocking async functions, NEVER use asyncio.Mock which doesn't exist.
+2. Make sure all imports are correct, especially importing AsyncMock and MagicMock from unittest.mock.
+3. Fix any other syntax or import errors found in the code.
+
 CORRECTED CODE:
 """
         
         return self._call_ai(prompt)
     
+    def check_for_mock_errors(self, test_code: str) -> Tuple[bool, str]:
+        """Check for common mocking errors in the test code."""
+        errors = []
+        
+        # Check for asyncio.Mock which doesn't exist
+        if "asyncio.Mock" in test_code:
+            errors.append("Found 'asyncio.Mock' in the code, which doesn't exist. Use unittest.mock.AsyncMock instead.")
+        
+        # Check for incorrect imports of AsyncMock
+        if "AsyncMock" in test_code and "from unittest.mock import" not in test_code and "import unittest.mock" not in test_code:
+            errors.append("Using AsyncMock without importing it from unittest.mock.")
+        
+        if errors:
+            return False, "\n".join(errors)
+        return True, ""
+    
     def write_tests(self) -> None:
         """Generate tests, validate them, revise if needed, and write to the test file."""
         print(f"Generating tests for {self.module_path}")
         generated_code = self.generate_tests()
+        
+        # Check for common mock errors
+        mock_success, mock_errors = self.check_for_mock_errors(generated_code)
+        if not mock_success:
+            print(f"Mock errors detected:\n{mock_errors}\n\nAttempting to revise tests...")
+            generated_code = self.revise_tests(generated_code, mock_errors)
+            # Check again
+            mock_success, mock_errors = self.check_for_mock_errors(generated_code)
+            if not mock_success:
+                print(f"Warning: Mock errors still present after revision: {mock_errors}")
         
         # Validate the generated tests
         success, error_message = self.validate_tests(generated_code)
