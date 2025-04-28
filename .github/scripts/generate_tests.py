@@ -679,7 +679,6 @@ RESULT FORMAT (just the code, no explanations):
         """Revise the tests using AI based on error messages with improved error analysis."""
         # Categorize the error to provide better guidance
         error_category = self._categorize_error(error_message)
-        guidance = self._get_error_guidance(error_category)
 
         prompt = f"""I generated the following pytest test code but it has errors. 
 Please fix the issues and provide a corrected version.
@@ -695,9 +694,6 @@ ERROR MESSAGE:
 ```
 
 ERROR CATEGORY: {error_category}
-
-GUIDANCE TO FIX THIS TYPE OF ERROR:
-{guidance}
 
 Please analyze the error message and fix the issues in the test code. Provide only the corrected code without explanations.
 
