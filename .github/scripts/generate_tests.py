@@ -316,62 +316,40 @@ class TestGenerator:
         return generated_tests
     
     def _create_ai_prompt(self, module_source: str, existing_tests: str, uncovered_functions: Dict[str, Dict]) -> str:
-        """Create a prompt for the AI to generate tests."""
-        prompt = f"""As an expert Python testing specialist, generate pytest test functions for a Python module. 
+        """Create a prompt for the AI to generate tests with improved guidance for common issues."""
+        # Extract function information and module context for the prompt
+        function_details = self._extract_detailed_function_info(uncovered_functions)
+        used_libraries = self._identify_used_libraries(module_source)
+        
+        prompt = f"""As an expert Python testing specialist, generate pytest test functions for a Python module.
 
 MODULE SOURCE CODE:
 ```python
 {module_source}
 ```
 
-UNCOVERED FUNCTIONS NEEDING TESTS:
+FUNCTIONS REQUIRING TESTS:
+{function_details}
+
+PROJECT CONTEXT:
+- Module path: {self.module_path}
+- Test file path: {self.test_file_path}
+- Module name for imports: {self.module_name}
+- Libraries used in module: {', '.join(used_libraries)}
+
+EXISTING TESTS (if any):
 """
     
-        for func_name, details in uncovered_functions.items():
-            is_async = details.get("is_async", False)
-            args = details.get("args", [])
-            docstring = details.get("docstring", "")
-            class_name = details.get("class_name", None)
-            
-            prompt += f"\n{'async ' if is_async else ''}function {func_name}({', '.join(args)})"
-            if docstring:
-                prompt += f"\nDocstring: {docstring}"
-            if class_name:
-                prompt += f"\nPart of class: {class_name}"
-        
-        # Add project structure context
-        prompt += f"\n\nPROJECT STRUCTURE CONTEXT:"
-        prompt += f"\n- Module path: {self.module_path}"
-        prompt += f"\n- Test file path: {self.test_file_path}"
-        prompt += f"\n- Module name for imports: {self.module_name}"
-        
-        prompt += "\n\nEXISTING TESTS (if any):\n"
         if existing_tests:
             prompt += f"```python\n{existing_tests}\n```"
         else:
             prompt += "None"
-        
-        # Include information about project dependencies
-        dependencies = []
-        try:
-            import toml
-            pyproject_path = self.project_root / "pyproject.toml"
-            if pyproject_path.exists():
-                with open(pyproject_path, "r", encoding="utf-8") as f:
-                    pyproject = toml.load(f)
-                    if "dependencies" in pyproject.get("tool", {}).get("poetry", {}):
-                        dependencies = list(pyproject["tool"]["poetry"]["dependencies"].keys())
-                    if "dev-dependencies" in pyproject.get("tool", {}).get("poetry", {}):
-                        dependencies.extend(list(pyproject["tool"]["poetry"]["dev-dependencies"].keys()))
-        except (ImportError, Exception) as e:
-            pass
-        
-        if dependencies:
-            prompt += "\n\nPROJECT DEPENDENCIES:\n" + ", ".join(dependencies)
-        
+            
+
         prompt += """
 
-REQUIREMENTS:
+TEST GENERATION REQUIREMENTS:
+
 1. Generate pytest test functions with descriptive names that explain what they're testing
 2. Use pytest.mark.asyncio for async functions to properly test them
 3. For class methods, create appropriate test fixtures that properly mock dependencies
@@ -395,29 +373,6 @@ CRITICAL PROBLEMS TO AVOID:
 6. Always properly define all variables before use
 7. For AsyncMock, import it from unittest.mock (from unittest.mock import AsyncMock)
 
-EXAMPLE OF CORRECT ASYNC MOCKING:
-```python
-# Import AsyncMock correctly 
-from unittest.mock import AsyncMock, MagicMock, patch
-
-# Create a fixture for a DNS resolver with awaitable return values
-@pytest.fixture
-def mock_dns_resolver():
-    resolver = MagicMock()
-    # Make the query method return an awaitable object
-    resolver.return_value.query = AsyncMock(return_value=["example.com"])
-    return resolver
-
-# Test that correctly uses the fixture by receiving it as a parameter
-@pytest.mark.asyncio
-async def test_request_function(mock_dns_resolver):
-    # Use patch to inject the mock into the system under test
-    with patch("module.DNSResolver", return_value=mock_dns_resolver.return_value):
-        # Test implementation
-        result = await function_under_test()
-        assert result == expected_value
-```
-
 CODE FORMAT RULES:
 1. First import statements (stdlib, then third-party, then local)
 2. Then fixtures (with clear docstrings explaining their purpose)
@@ -433,6 +388,104 @@ RESULT FORMAT (just the code, no explanations):
     
         return prompt
     
+    def _extract_detailed_function_info(self, uncovered_functions: Dict[str, Dict]) -> str:
+        """Extract detailed information about functions to test, including parameters, return types and usage patterns."""
+        result = ""
+        
+        for func_name, details in uncovered_functions.items():
+            is_async = details.get("is_async", False)
+            args = details.get("args", [])
+            docstring = details.get("docstring", "")
+            class_name = details.get("class_name", None)
+            
+            # Analyze function signature
+            signature = f"{'async ' if is_async else ''}{func_name}({', '.join(args)})"
+            
+            # Extract return type and parameter types if available
+            return_type = self._extract_return_type(func_name) or "Unknown"
+            
+            # Get function usage patterns
+            usage_patterns = self._analyze_function_usage(func_name)
+            
+            # Format the function information
+            result += f"\n\nFunction: {signature}\n"
+            result += f"Return Type: {return_type}\n"
+            
+            if class_name:
+                result += f"Class: {class_name}\n"
+            
+            if docstring:
+                result += f"Description: {docstring}\n"
+            
+            if usage_patterns:
+                result += f"Usage Patterns: {usage_patterns}\n"
+            
+            # Extract external dependencies
+            dependencies = self._extract_dependencies(func_name)
+            if dependencies:
+                result += f"Dependencies: {', '.join(dependencies)}\n"
+        
+        return result
+
+    def _extract_return_type(self, func_name: str) -> str:
+        """Extract the return type of a function from its signature or annotations."""
+        # This is a stub - in a real implementation, this would analyze the AST or use introspection
+        return "Unknown"
+
+    def _analyze_function_usage(self, func_name: str) -> str:
+        """Analyze how the function is typically used based on its body and other module references."""
+        # This is a stub - in a real implementation, this would analyze function call patterns
+        return ""
+
+    def _extract_dependencies(self, func_name: str) -> List[str]:
+        """Extract external dependencies used by the function."""
+        # This is a stub - in a real implementation, this would identify imports and library calls
+        return []
+
+    def _identify_used_libraries(self, module_source: str) -> List[str]:
+        """Identify the libraries used in the module to help with mocking."""
+        libraries = []
+        
+        # Basic regex pattern to identify imports
+        import_pattern = r'import\s+([a-zA-Z0-9_.]+)|from\s+([a-zA-Z0-9_.]+)\s+import'
+        
+        import_matches = re.findall(import_pattern, module_source)
+        for match in import_matches:
+            # Get the library name (could be either group)
+            lib = match[0] if match[0] else match[1]
+            
+            # Get the top-level package
+            top_level = lib.split('.')[0]
+            
+            if top_level and top_level not in libraries and not top_level.startswith('_'):
+                libraries.append(top_level)
+        
+        return libraries
+
+    def _generate_test_template(self, func_name: str, details: Dict) -> str:
+        """Generate a test template based on function type."""
+        is_async = details.get("is_async", False)
+        args = details.get("args", [])
+        class_name = details.get("class_name", None)
+        
+        template = ""
+        
+        # Different templates for different function types
+        if is_async:
+            if class_name:
+                template = self._async_class_method_template(class_name, func_name, args)
+            else:
+                template = self._async_function_template(func_name, args)
+        else:
+            if class_name:
+                template = self._class_method_template(class_name, func_name, args)
+            else:
+                template = self._function_template(func_name, args)
+        
+        return template
+
+
+
     def _call_ai(self, prompt: str) -> str:
         """Call the SambaNova API with the prompt and return the generated code."""
         try:
@@ -623,15 +676,11 @@ RESULT FORMAT (just the code, no explanations):
                 sys.path.remove(str(temp_dir_path))
     
     def revise_tests(self, test_code: str, error_message: str) -> str:
-        """Revise the tests using AI based on error messages.
-        
-        Args:
-            test_code: The test code to revise
-            error_message: The error message from the validation
-            
-        Returns:
-            The revised test code
-        """
+         """Revise the tests using AI based on error messages with improved error analysis."""
+        # Categorize the error to provide better guidance
+        error_category = self._categorize_error(error_message)
+        guidance = self._get_error_guidance(error_category)
+
         prompt = f"""I generated the following pytest test code but it has errors. 
 Please fix the issues and provide a corrected version.
 
@@ -645,19 +694,100 @@ ERROR MESSAGE:
 {error_message}
 ```
 
-Please analyze the error message and fix the issues in the test code. Common problems include:
-1. Import errors (missing or incorrect imports)
-2. Syntax errors
-3. Incorrect test fixtures
-4. Issues with mocking
-5. Async function handling issues
+ERROR CATEGORY: {error_category}
 
-Provide only the corrected code without explanations.
+GUIDANCE TO FIX THIS TYPE OF ERROR:
+{guidance}
+
+Please analyze the error message and fix the issues in the test code. Provide only the corrected code without explanations.
 
 CORRECTED CODE:
 """
         
         return self._call_ai(prompt)
+
+    def _categorize_error(self, error_message: str) -> str:
+        """Categorize the error type based on the error message to provide targeted guidance."""
+        if "JSONDecodeError" in error_message:
+            return "JSON_DECODE_ERROR"
+        elif "expected call not found" in error_message:
+            return "MOCK_ASSERTION_ERROR"
+        elif "Need a valid target to patch" in error_message:
+            return "PATCH_PATH_ERROR"
+        elif "'NoneType' object has no attribute" in error_message:
+            return "ATTRIBUTE_ERROR"
+        elif "can't be used in 'await' expression" in error_message:
+            return "ASYNC_MOCK_ERROR"
+        elif "Fixture" in error_message and "called directly" in error_message:
+            return "FIXTURE_USAGE_ERROR"
+        else:
+            return "GENERAL_ERROR"
+
+    def _get_error_guidance(self, error_category: str) -> str:
+        """Get targeted guidance for fixing specific error categories."""
+        guidance = {
+            "JSON_DECODE_ERROR": """
+    When mocking JSON responses:
+    1. Ensure the mock returns a valid JSON string or bytes
+    2. For orjson library, the input must be bytes, bytearray, memoryview, or str
+    3. Replace: mock_response.return_value = None
+    With: mock_response.return_value = '{"key": "value"}'
+    4. Make sure the JSON string is properly formatted
+            """,
+            
+            "MOCK_ASSERTION_ERROR": """
+    For mock assertion issues:
+    1. Ensure the mock is called with exactly the expected arguments
+    2. Check the method signature to verify all required parameters
+    3. For positional vs. keyword args, ensure they match the expected call pattern
+    4. Use mock.assert_called_once_with() with the exact expected arguments
+            """,
+            
+            "PATCH_PATH_ERROR": """
+    For patching errors:
+    1. Patch at the exact location where the module is imported, not where it's defined
+    2. Use the full import path as used in the module under test
+    3. Replace: @patch('module')
+    With: @patch('package.module.Class.method')
+    4. For class methods, consider using @patch.object(Class, 'method')
+            """,
+            
+            "ATTRIBUTE_ERROR": """
+    For NoneType attribute errors:
+    1. Ensure objects are properly initialized before methods are called
+    2. For nullable attributes, check they are set before use
+    3. Provide mock objects for all dependencies accessed in the code
+    4. Initialize client sessions or connections before testing methods that use them
+            """,
+            
+            "ASYNC_MOCK_ERROR": """
+    For async mocking issues:
+    1. Use AsyncMock for mocking async functions
+    2. Always ensure mocked async functions return awaitable objects
+    3. Replace: mock_func = MagicMock()
+    With: mock_func = AsyncMock(return_value=expected_result)
+    4. For side effects: mock_func.side_effect = AsyncMock(side_effect=Exception())
+            """,
+            
+            "FIXTURE_USAGE_ERROR": """
+    For fixture usage errors:
+    1. NEVER call fixtures directly in test code
+    2. ALWAYS pass fixtures as parameters to test functions
+    3. Replace: result = test_function(fixture())
+    With: result = test_function(fixture)
+    4. Ensure all fixtures used in a test are included in the test function parameters
+            """,
+            
+            "GENERAL_ERROR": """
+    General troubleshooting:
+    1. Check import statements to ensure all required modules are imported
+    2. Verify type hints and function signatures match the expected usage
+    3. Ensure all variables are defined before they are used
+    4. Review the module structure and dependencies to ensure correct mocking
+            """
+        }
+    
+        return guidance.get(error_category, guidance["GENERAL_ERROR"])
     
     def write_tests(self) -> None:
         """Generate tests, validate them, revise if needed, and write to the test file."""
