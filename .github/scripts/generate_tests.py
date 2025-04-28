@@ -320,6 +320,19 @@ class TestGenerator:
         # Extract function information and module context for the prompt
         function_details = self._extract_detailed_function_info(uncovered_functions)
         used_libraries = self._identify_used_libraries(module_source)
+
+        # Extract model structures to help with mock data generation
+        models = self._extract_model_structure(self.module_ast)
+        model_details = ""
+        if models:
+            model_details = "\nMODEL STRUCTURES:\n"
+            for model_name, fields in models.items():
+                model_details += f"\n{model_name}:\n"
+                for field_name, field_info in fields.items():
+                    model_details += f"  - {field_name}: {field_info['type']}"
+                    if field_info.get("required"):
+                        model_details += " (required)"
+                    model_details += "\n"
         
         prompt = f"""As an expert Python testing specialist, generate pytest test functions for a Python module.
 
@@ -351,6 +364,7 @@ EXISTING TESTS (if any):
 TEST GENERATION REQUIREMENTS:
 
 1. Generate pytest test functions with descriptive names that explain what they're testing
+2. Use pytest.mark.asyncio for async functions to properly test them
 3. For class methods, create appropriate test fixtures that properly mock dependencies
 4. Include ALL necessary import statements at the top
 5. Create realistic mocks for external dependencies like aiohttp, requests, filesystem, etc.
@@ -387,6 +401,37 @@ RESULT FORMAT (just the code, no explanations):
     
         return prompt
     
+    def _extract_model_structure(self, module_ast: ast.Module) -> Dict[str, Dict[str, Any]]:
+        """Extract dataclass structures from the module."""
+        models = {}
+        
+        for node in ast.walk(module_ast):
+            if isinstance(node, ast.ClassDef):
+                # Check if it's a dataclass
+                is_dataclass = False
+                for decorator in node.decorator_list:
+                    if isinstance(decorator, ast.Name) and decorator.id == "dataclass":
+                        is_dataclass = True
+                        break
+                
+                if is_dataclass:
+                    class_name = node.name
+                    fields = {}
+                    
+                    # Extract fields from the class
+                    for item in node.body:
+                        if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                            field_name = item.target.id
+                            field_type = ast.unparse(item.annotation)
+                            fields[field_name] = {
+                                "type": field_type,
+                                "required": True,  # Assume all fields are required by default
+                            }
+                    
+                    models[class_name] = fields
+        
+        return models
+
     def _extract_detailed_function_info(self, uncovered_functions: Dict[str, Dict]) -> str:
         """Extract detailed information about functions to test, including parameters, return types and usage patterns."""
         result = ""
@@ -703,9 +748,11 @@ CORRECTED CODE:
 
     def _categorize_error(self, error_message: str) -> str:
         """Categorize the error type based on the error message to provide targeted guidance."""
-        if "JSONDecodeError" in error_message:
+        if "MissingField" in error_message:
+            return "MISSING_FIELD_ERROR"
+        elif "JSONDecodeError" in error_message:
             return "JSON_DECODE_ERROR"
-        elif "expected call not found" in error_message:
+        elif "assert_called" in error_message:
             return "MOCK_ASSERTION_ERROR"
         elif "Need a valid target to patch" in error_message:
             return "PATCH_PATH_ERROR"
@@ -715,12 +762,48 @@ CORRECTED CODE:
             return "ASYNC_MOCK_ERROR"
         elif "Fixture" in error_message and "called directly" in error_message:
             return "FIXTURE_USAGE_ERROR"
+        elif "DID NOT RAISE" in error_message:
+            return "EXPECTED_EXCEPTION_ERROR"
+        elif "TimeoutError" in error_message:
+            return "TIMEOUT_ERROR"
         else:
             return "GENERAL_ERROR"
 
     def _get_error_guidance(self, error_category: str) -> str:
         """Get targeted guidance for fixing specific error categories."""
         guidance = {
+
+            "MISSING_FIELD_ERROR": """
+    When mocking dataclass responses:
+    1. Ensure ALL required fields are included in the mock response
+    2. Check field types and ensure they match the expected types
+    3. For nested objects, make sure all their required fields are included too
+    4. Example: 
+    - Instead of: mock_request.return_value = '{"name": "Example"}'
+    - Use: mock_request.return_value = '{"name": "Example", "id": 123, "required_field": "value"}'
+            """,
+            
+            "TIMEOUT_ERROR": """
+    For timeout error tests:
+    1. When using AsyncMock.side_effect = TimeoutError(), the exception needs to be caught
+    2. Make sure to patch at the right level (the actual function that raises TimeoutError)
+    3. Use try/except in the test if needed to handle the propagation
+    4. Example:
+    - session_mock.request.side_effect = asyncio.TimeoutError()
+    - Then test the function that uses session.request
+            """,
+            
+            "EXPECTED_EXCEPTION_ERROR": """
+    For tests expecting exceptions:
+    1. Make sure the conditions that trigger the exception are properly set up
+    2. Check that you're testing the right function call
+    3. Verify that the right exception type is being raised
+    4. For content-type related errors, mock the headers correctly
+    5. Example:
+    - response_mock.headers = {"Content-Type": "text/plain"}  # Not JSON
+    - Should raise error when expecting JSON
+            """,
+            
             "JSON_DECODE_ERROR": """
     When mocking JSON responses:
     1. Ensure the mock returns a valid JSON string or bytes
