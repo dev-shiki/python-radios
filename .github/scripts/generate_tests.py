@@ -401,7 +401,7 @@ RESULT FORMAT (just the code, no explanations):
     
         return prompt
     
-    def _extract_model_structure(self, module_ast: ast.Module) -> Dict[str, Dict[str, Any]]:
+    def _extract_model_structure(self, module_ast: ast.Module) -> Dict[str, Dict[str, any]]:
         """Extract dataclass structures from the module."""
         models = {}
         
