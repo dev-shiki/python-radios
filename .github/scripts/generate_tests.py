@@ -323,11 +323,19 @@ class TestGenerator:
         # Format function signatures for the prompt
         function_signatures_str = json.dumps(self.function_signatures, indent=2)
         
+        # Get the imports from the module to help inform the AI
+        imports_str = "\n".join(self.imports)
+        
         prompt = f"""As an expert Python testing specialist, generate pytest test functions for a Python module.
 
 MODULE SOURCE CODE:
 ```python
 {module_source}
+```
+
+MODULE IMPORTS:
+```python
+{imports_str}
 ```
 
 CLASS SIGNATURES:
@@ -343,6 +351,9 @@ FUNCTION SIGNATURES:
 MODULE NAME: {self.module_name}
 MODULE PATH: {self.module_path}
 TEST FILE PATH: {self.test_file_path}
+
+IMPORTANT NOTE: This project uses the 'aresponses' package (NOT 'aioresponses') for mocking HTTP requests.
+Import it with: from aresponses import ResponsesMockServer
 
 EXISTING TESTS (if any):
 """
@@ -373,24 +384,56 @@ TEST GENERATION REQUIREMENTS:
          return RadioBrowser(user_agent="TestAgent", session=mock_session)
      ```
 
-2. ASYNC TESTING:
+2. MOCKING HTTP REQUESTS:
+   - Use aresponses (not aioresponses) library for mocking HTTP requests
+   - Import with: from aresponses import ResponsesMockServer
+   - Use @pytest.fixture for setting up aresponses:
+     ```python
+     @pytest.fixture
+     def aresponses(event_loop):
+         with ResponsesMockServer() as server:
+             yield server
+     ```
+   - Configure responses:
+     ```python
+     aresponses.add(
+         "example.com",
+         "/test",
+         "GET",
+         aresponses.Response(
+             status=200,
+             headers={"Content-Type": "application/json"},
+             text='{"status": "ok"}',
+         ),
+     )
+     ```
+
+3. ASYNC TESTING:
    - Use @pytest.mark.asyncio for async test functions
    - Use AsyncMock() for mocking async functions and methods
    - For async HTTP clients, make sure response methods are properly mocked
    - Example:
      ```python
      @pytest.mark.asyncio
-     async def test_async_method(radio_browser, mock_session):
+     async def test_async_method(radio_browser, aresponses):
          # Setup
-         mock_response = AsyncMock()
-         mock_response.text.return_value = '{"result": "success"}'
-         mock_session.request.return_value = mock_response
+         aresponses.add(
+             "api.radio-browser.info",
+             "/json/stations",
+             "GET",
+             aresponses.Response(
+                 status=200,
+                 headers={"Content-Type": "application/json"},
+                 text='[{"result": "success"}]',
+             ),
+         )
          
          # Test
-         result = await radio_browser.method()
+         result = await radio_browser.stations()
          
          # Assert
          assert result is not None
+         assert isinstance(result, list)
      ```
 
 3. MOCKING STRATEGY:
@@ -433,8 +476,9 @@ RESULT FORMAT:
                         "role": "system", 
                         "content": (
                             "You are an expert Python testing specialist with deep knowledge of pytest, "
-                            "unittest.mock, and testing best practices. Your specialty is writing "
-                            "comprehensive, effective test suites that achieve high code coverage."
+                            "unittest.mock, and the aresponses package. Your specialty is writing "
+                            "comprehensive, effective test suites that achieve high code coverage. "
+                            "You always use 'aresponses' package for mocking HTTP requests, NOT 'aioresponses'."
                         )
                     },
                     {"role": "user", "content": prompt}
