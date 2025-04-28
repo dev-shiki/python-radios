@@ -424,7 +424,6 @@ CODE FORMAT RULES:
 3. Then test functions (with clear docstrings explaining what they test)
 4. Use descriptive variable names and avoid magic numbers
 5. Include proper type hints where appropriate
-6. Add appropriate parametrize decorators for testing multiple scenarios
 
 RESULT FORMAT (just the code, no explanations):
 ```python
