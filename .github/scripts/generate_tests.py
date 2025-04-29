@@ -391,8 +391,13 @@ TEST GENERATION REQUIREMENTS:
 
 ASYNC MOCKING RULES (CRITICAL):
 
-1. ALWAYS import AsyncMock from unittest.mock for mocking asynchronous methods
-2. For mocking aiohttp.ClientSession or similar async clients:
+1. ALWAYS use AsyncMock from unittest.mock for mocking asynchronous methods
+2. For async context managers, mock both aenter and aexit:
+    ```python
+    mock_session.request.return_value.aenter.return_value = mock_response
+    mock_session.request.return_value.aexit.return_value = None
+    ```
+3. For mocking aiohttp.ClientSession or similar async clients:
     ```python
     # Create the response mock first
     mock_response = AsyncMock()
@@ -404,42 +409,20 @@ ASYNC MOCKING RULES (CRITICAL):
     mock_session.request.return_value = AsyncMock()
     mock_session.request.return_value.__aenter__.return_value = mock_response
     ```
-3. For mocking async context managers, ensure both aenter and aexit are properly set up:
-    ```python
-    mock_session.request.return_value.__aenter__.return_value = mock_response
-    mock_session.request.return_value.__aexit__.return_value = None
-    ```
-4. For mocked errors, use proper side_effect:
+4. For mocked errors, use side_effect:
     ```python
     mock_session.request.side_effect = aiohttp.ClientError()
-    # OR for timeout errors
     mock_session.request.side_effect = asyncio.TimeoutError()
     ```
 5. NEVER use a regular MagicMock for methods that will be awaited
-6. In test functions, always use await when calling async methods:
+6. ALWAYS use await when calling an async method, e.g.:
     ```python
     result = await radio_browser.stats()  # CORRECT
     # NOT: result = radio_browser.stats()  # WRONG - would return a coroutine
-    ```python
-7. When testing methods like close() that should close a session:
-    ```python
-    # Make sure close is async-friendly
-    mock_session.close = AsyncMock()
-    mock_session.close.return_value = None
-
-    # Then in your test
-    await radio_browser.close()
-    mock_session.close.assert_called_once()
     ```
-8. For aexit tests, ensure the mock can be awaited:
+7. For methods that return lists or generators, ensure the mock returns the appropriate structure:
     ```python
-    mock_session.close = AsyncMock()
-
-    # Then test context manager
-    async with radio_browser:
-        pass
-
-    mock_session.close.assert_called_once()
+    mock_response.text.return_value = '[{"id": 1}, {"id": 2}]'
     ```
 
 CRITICAL PROBLEMS TO AVOID:
