@@ -383,32 +383,59 @@ TEST GENERATION REQUIREMENTS:
 14. When mocking model responses, include ALL required fields with appropriate types
 15. For complex objects, create complete mock structures matching the dataclass definitions
 16. All models need every field specified in their dataclasses (check for MissingField errors)
-17. Handle async functions correctly with appropriate AsyncMock setup
-18. Ensure side_effects for timeout/connection errors are properly handled
-19. Make sure close() is actually called when testing it
-20. Verify error cases with proper exception context management
-21. CAREFULLY examine the project structure and produce CORRECT import paths that match the actual module organization
 
 ASYNC MOCKING RULES (CRITICAL):
 
-ALWAYS use AsyncMock from unittest.mock for mocking asynchronous methods
-For async context managers, mock both aenter and aexit:
-    mock_session.request.return_value.aenter.return_value = mock_response
-    mock_session.request.return_value.aexit.return_value = None
-For mocking response text or json methods:
+1. ALWAYS import AsyncMock from unittest.mock for mocking asynchronous methods
+2. For mocking aiohttp.ClientSession or similar async clients:
+    ```python
+    # Create the response mock first
+    mock_response = AsyncMock()
     mock_response.text.return_value = '{"key": "value"}'
-    OR
     mock_response.json.return_value = {"key": "value"}
-For mocked errors, use side_effect:
+
+    # Then set up the session mock correctly
+    mock_session = AsyncMock()
+    mock_session.request.return_value = AsyncMock()
+    mock_session.request.return_value.__aenter__.return_value = mock_response
+    ```
+3. For mocking async context managers, ensure both aenter and aexit are properly set up:
+    ```python
+    mock_session.request.return_value.__aenter__.return_value = mock_response
+    mock_session.request.return_value.__aexit__.return_value = None
+    ```
+4. For mocked errors, use proper side_effect:
+    ```python
     mock_session.request.side_effect = aiohttp.ClientError()
+    # OR for timeout errors
     mock_session.request.side_effect = asyncio.TimeoutError()
-NEVER use a regular MagicMock for methods that will be awaited
-ALWAYS use await when calling an async method, e.g.:
-    result = await radio.stats()
-    NOT
-    result = radio.stats()
-For methods that return lists or generators, ensure the mock returns the appropriate structure:
-    mock_response.text.return_value = '[{"id": 1}, {"id": 2}]'
+    ```
+5. NEVER use a regular MagicMock for methods that will be awaited
+6. In test functions, always use await when calling async methods:
+    ```python
+    result = await radio_browser.stats()  # CORRECT
+    # NOT: result = radio_browser.stats()  # WRONG - would return a coroutine
+    ```python
+7. When testing methods like close() that should close a session:
+    ```python
+    # Make sure close is async-friendly
+    mock_session.close = AsyncMock()
+    mock_session.close.return_value = None
+
+    # Then in your test
+    await radio_browser.close()
+    mock_session.close.assert_called_once()
+    ```
+8. For aexit tests, ensure the mock can be awaited:
+    ```python
+    mock_session.close = AsyncMock()
+
+    # Then test context manager
+    async with radio_browser:
+        pass
+
+    mock_session.close.assert_called_once()
+    ```
 
 CRITICAL PROBLEMS TO AVOID:
 1. NEVER call fixtures directly in test functions or within other fixtures
