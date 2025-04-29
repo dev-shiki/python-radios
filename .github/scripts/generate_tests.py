@@ -323,16 +323,19 @@ class TestGenerator:
 
         # Extract model structures to help with mock data generation
         models = self._extract_model_structure(self.module_ast)
-        model_details = ""
+        model_examples = ""
+        
+        # Generate example mock data for each model
         if models:
-            model_details = "\nMODEL STRUCTURES:\n"
+            model_examples = "\nMODEL MOCK EXAMPLES:\n"
             for model_name, fields in models.items():
-                model_details += f"\n{model_name}:\n"
+                mock_data = "{\n"
                 for field_name, field_info in fields.items():
-                    model_details += f"  - {field_name}: {field_info['type']}"
-                    if field_info.get("required"):
-                        model_details += " (required)"
-                    model_details += "\n"
+                    field_type = field_info['type']
+                    mock_value = self._generate_mock_value_for_type(field_type)
+                    mock_data += f'    "{field_name}": {mock_value},\n'
+                mock_data += "}"
+                model_examples += f"\n{model_name} mock example:\n```json\n{mock_data}\n```\n"
         
         prompt = f"""As an expert Python testing specialist, generate pytest test functions for a Python module.
 
@@ -342,7 +345,8 @@ MODULE SOURCE CODE:
 ```
 
 FUNCTIONS REQUIRING TESTS:
-{function_details}
+{self._extract_detailed_function_info(uncovered_functions)}
+{model_examples}
 
 PROJECT CONTEXT:
 - Module path: {self.module_path}
@@ -376,6 +380,13 @@ TEST GENERATION REQUIREMENTS:
 11. For each test function, test one specific behavior or scenario
 12. Ensure all tests are isolated and don't depend on other tests
 13. Write tests that specifically target the uncovered functions, lines and branches
+14. When mocking model responses, include ALL required fields with appropriate types
+15. For complex objects, create complete mock structures matching the dataclass definitions
+16. All models need every field specified in their dataclasses (check for MissingField errors)
+17. Handle async functions correctly with appropriate AsyncMock setup
+18. Ensure side_effects for timeout/connection errors are properly handled
+19. Make sure close() is actually called when testing it
+20. Verify error cases with proper exception context management
 
 CRITICAL PROBLEMS TO AVOID:
 1. NEVER call fixtures directly in test functions or within other fixtures
@@ -401,16 +412,42 @@ RESULT FORMAT (just the code, no explanations):
     
         return prompt
     
+    def _generate_mock_value_for_type(self, type_str: str) -> str:
+        """Generate appropriate mock values based on type hints."""
+        if 'int' in type_str:
+            return "42"
+        elif 'float' in type_str:
+            return "42.0"
+        elif 'bool' in type_str:
+            return "true"
+        elif 'str' in type_str:
+            return '"example_string"'
+        elif 'datetime' in type_str:
+            return '"2023-01-01T00:00:00"'
+        elif 'list' in type_str:
+            return '["item1", "item2"]'
+        elif 'Optional' in type_str or 'None' in type_str:
+            inner_type = type_str.replace('Optional[', '').replace(']', '')
+            return self._generate_mock_value_for_type(inner_type)
+        else:
+            return '"mock_value"'
+
     def _extract_model_structure(self, module_ast: ast.Module) -> Dict[str, Dict[str, any]]:
-        """Extract dataclass structures from the module."""
+        """Extract dataclass structures from the module with more robust field detection."""
         models = {}
         
         for node in ast.walk(module_ast):
             if isinstance(node, ast.ClassDef):
-                # Check if it's a dataclass
+                # Check for dataclass decorators or inheritance from DataClassMixin classes
                 is_dataclass = False
                 for decorator in node.decorator_list:
                     if isinstance(decorator, ast.Name) and decorator.id == "dataclass":
+                        is_dataclass = True
+                        break
+                
+                # Also check for inheritance from any *Mixin class that likely indicates a dataclass
+                for base in node.bases:
+                    if isinstance(base, ast.Attribute) and 'Mixin' in ast.unparse(base):
                         is_dataclass = True
                         break
                 
@@ -423,13 +460,24 @@ RESULT FORMAT (just the code, no explanations):
                         if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
                             field_name = item.target.id
                             field_type = ast.unparse(item.annotation)
+                            default_value = None
+                            
+                            # Check for default values or field options
+                            if item.value:
+                                if isinstance(item.value, ast.Call) and isinstance(item.value.func, ast.Name) and item.value.func.id == 'field':
+                                    # Look for metadata or default values in field()
+                                    for keyword in item.value.keywords:
+                                        if keyword.arg == 'default' or keyword.arg == 'default_factory':
+                                            default_value = ast.unparse(keyword.value)
+                            
                             fields[field_name] = {
                                 "type": field_type,
-                                "required": True,  # Assume all fields are required by default
+                                "required": default_value is None,  # If no default, it's required
+                                "default": default_value
                             }
                     
                     models[class_name] = fields
-        
+            
         return models
 
     def _extract_detailed_function_info(self, uncovered_functions: Dict[str, Dict]) -> str:
