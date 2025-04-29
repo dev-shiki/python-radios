@@ -383,6 +383,11 @@ TEST GENERATION REQUIREMENTS:
 14. When mocking model responses, include ALL required fields with appropriate types
 15. For complex objects, create complete mock structures matching the dataclass definitions
 16. All models need every field specified in their dataclasses (check for MissingField errors)
+17. Handle async functions correctly with appropriate AsyncMock setup
+18. Ensure side_effects for timeout/connection errors are properly handled
+19. Make sure close() is actually called when testing it
+20. Verify error cases with proper exception context management
+21. CAREFULLY examine the project structure and produce CORRECT import paths that match the actual module organization
 
 ASYNC MOCKING RULES (CRITICAL):
 
