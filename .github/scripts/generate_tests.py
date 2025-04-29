@@ -370,7 +370,7 @@ TEST GENERATION REQUIREMENTS:
 1. Generate pytest test functions with descriptive names that explain what they're testing
 2. Use pytest.mark.asyncio for async functions to properly test them
 3. For class methods, create appropriate test fixtures that properly mock dependencies
-4. Include ALL necessary import statements at the top
+4. Include ALL necessary import statements at the top and CAREFULLY respect the project's import structure
 5. Create realistic mocks for external dependencies like aiohttp, requests, filesystem, etc.
 6. Write comprehensive assertions that verify both happy paths and error cases
 7. If HTTP requests are involved, use aresponses or unittest.mock.patch to mock them
@@ -387,6 +387,7 @@ TEST GENERATION REQUIREMENTS:
 18. Ensure side_effects for timeout/connection errors are properly handled
 19. Make sure close() is actually called when testing it
 20. Verify error cases with proper exception context management
+21. CAREFULLY examine the project structure and produce CORRECT import paths that match the actual module organization
 
 CRITICAL PROBLEMS TO AVOID:
 1. NEVER call fixtures directly in test functions or within other fixtures
@@ -396,6 +397,16 @@ CRITICAL PROBLEMS TO AVOID:
 5. When mocking libraries like aiohttp, the side_effect or return_value MUST be awaitable (like AsyncMock())
 6. Always properly define all variables before use
 7. For AsyncMock, import it from unittest.mock (from unittest.mock import AsyncMock)
+8. NEVER invent module paths that don't exist (e.g., don't treat a module as a package)
+9. DO NOT create nested import paths unless they actually exist in the project
+10. DO verify that all imports resolve correctly for the project structure
+
+IMPORT STRUCTURE RULES:
+1. Examine the actual module structure of the project before creating imports
+2. Respect the package boundaries - don't treat modules as packages
+3. Check if the module is imported directly or through a package
+4. Use the correct relative or absolute imports based on the project structure
+5. Keep imports organized (stdlib first, third-party second, local project imports last)
 
 CODE FORMAT RULES:
 1. First import statements (stdlib, then third-party, then local)
