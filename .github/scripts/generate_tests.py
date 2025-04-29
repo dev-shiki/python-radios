@@ -412,8 +412,13 @@ RESULT FORMAT (just the code, no explanations):
     
         return prompt
     
-    def _generate_mock_value_for_type(self, type_str: str) -> str:
-        """Generate appropriate mock values based on type hints."""
+    def _generate_mock_value_for_type(self, type_str: str, recursion_depth=0) -> str:
+        """Generate appropriate mock values based on type hints with recursion protection."""
+        # Prevent infinite recursion
+        if recursion_depth > 5:
+            return '"mock_value"'
+        
+        # Handle basic types
         if 'int' in type_str:
             return "42"
         elif 'float' in type_str:
@@ -426,9 +431,34 @@ RESULT FORMAT (just the code, no explanations):
             return '"2023-01-01T00:00:00"'
         elif 'list' in type_str:
             return '["item1", "item2"]'
-        elif 'Optional' in type_str or 'None' in type_str:
-            inner_type = type_str.replace('Optional[', '').replace(']', '')
-            return self._generate_mock_value_for_type(inner_type)
+        # Handle nested types with recursion protection
+        elif 'Optional' in type_str or 'Union' in type_str or '|' in type_str:
+            # Extract the inner type more safely
+            # Handle both Optional[Type] and Union[Type1, Type2]
+            inner_type = type_str
+            
+            # Remove Optional[...]
+            if 'Optional' in inner_type:
+                inner_type = inner_type.replace('Optional[', '').rstrip(']')
+            
+            # Handle Union types by picking the first non-None type
+            elif 'Union' in inner_type:
+                inner_type = inner_type.replace('Union[', '').rstrip(']')
+                types = [t.strip() for t in inner_type.split(',')]
+                inner_type = next((t for t in types if 'None' not in t), types[0])
+            
+            # Handle Python 3.10+ Union syntax (Type1 | Type2)
+            elif '|' in inner_type:
+                types = [t.strip() for t in inner_type.split('|')]
+                inner_type = next((t for t in types if 'None' not in t), types[0])
+            
+            return self._generate_mock_value_for_type(inner_type, recursion_depth + 1)
+        
+        # Handle generic types like Dict[str, int]
+        elif 'Dict' in type_str or 'dict' in type_str:
+            return '{"key": "value"}'
+        
+        # Default case
         else:
             return '"mock_value"'
 
