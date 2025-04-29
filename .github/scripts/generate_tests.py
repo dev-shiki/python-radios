@@ -368,7 +368,7 @@ EXISTING TESTS (if any):
 TEST GENERATION REQUIREMENTS:
 
 1. Generate pytest test functions with descriptive names that explain what they're testing
-2. Use pytest.mark.asyncio for async functions to properly test them
+2. ALL test functions for async code MUST be decorated with @pytest.mark.asyncio , ALL calls to async methods MUST be prefixed with 'await'
 3. For class methods, create appropriate test fixtures that properly mock dependencies
 4. Include ALL necessary import statements at the top and CAREFULLY respect the project's import structure
 5. Create realistic mocks for external dependencies like aiohttp, requests, filesystem, etc.
@@ -389,62 +389,54 @@ TEST GENERATION REQUIREMENTS:
 20. Verify error cases with proper exception context management
 21. CAREFULLY examine the project structure and produce CORRECT import paths that match the actual module organization
 
-ASYNC FUNCTION TESTING - CRITICAL REQUIREMENTS:
-1. ALWAYS use AsyncMock from unittest.mock (from unittest.mock import AsyncMock) for ANY async function
-2. When mocking aiohttp.ClientSession, use patch("aiohttp.ClientSession") and configure its request method:
-   ```python
-   mock_session.return_value.request = AsyncMock()
-   mock_response = AsyncMock()
-   mock_response.text.return_value = '{"data": "value"}'
-   mock_response.headers = {"Content-Type": "application/json"}
-   mock_session.return_value.request.return_value.__aenter__.return_value = mock_response
-   ```
-3. For aiohttp.ClientSession.request, ALWAYS mock the entire chain:
-   - request() → returns a context manager
-   - context manager.__aenter__() → returns response
-   - So the full chain is: session.request().____aenter__().return_value = mock_response
-4. For EVERY async function mock, make sure each level of the chain is AsyncMock:
-   ```python
-   # CORRECT
-   mock_session = AsyncMock()
-   mock_session.request = AsyncMock()
-   mock_session.request.return_value = AsyncMock()
-   mock_session.request.return_value.__aenter__ = AsyncMock()
-   mock_session.request.return_value.__aenter__.return_value = AsyncMock()
-   
-   # INCORRECT - will cause "object MagicMock can't be used in 'await' expression"
-   mock_session = MagicMock()  # Should be AsyncMock
-   ```
-5. For patching specific module functions:
-   ```python
-   # Patch at the module level, not the instance level
-   @patch("aiohttp.ClientSession")
-   # Make sure to configure the entire chain
-   def test_function(self, mock_session):
-       mock_session.return_value.request = AsyncMock()
-       # Setup chain properly
-   ```
-6. When testing DNSResolver:
-   ```python
-   @patch("aiodns.DNSResolver")
-   def test_with_dns(self, mock_resolver):
-       # Mock resolver.query to return an AsyncMock
-       mock_resolver.return_value.query = AsyncMock()
-       # Setup return values for the query
-       mock_resolver.return_value.query.return_value = [MagicMock(host="test.example.com")]
-   ```
+ASYNC MOCKING RULES (CRITICAL):
+
+1. ALWAYS use AsyncMock from unittest.mock for mocking asynchronous methods
+2. For async context managers, mock both aenter and aexit:
+    mock_session.request.return_value.aenter.return_value = mock_response
+    mock_session.request.return_value.aexit.return_value = None
+3. For mocking response text or json methods:
+    mock_response.text.return_value = '{"key": "value"}'OR mock_response.json.return_value = {"key": "value"}
+4. For mocked errors, use side_effect:
+    mock_session.request.side_effect = aiohttp.ClientError()
+    mock_session.request.side_effect = asyncio.TimeoutError()
+5. NEVER use a regular MagicMock for methods that will be awaited
+6. ALWAYS use await when calling an async method, e.g.:
+    result = await radio.stats() NOT result = radio.stats()
+7. For methods that return lists or generators, ensure the mock returns the appropriate structure:
+    mock_response.text.return_value = '[{"id": 1}, {"id": 2}]'
+
+COMMON PYTEST ASYNCIO PATTERNS TO USE:
+```python
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+@pytest.fixture
+def mock_session():
+    return MagicMock()
+
+@pytest.mark.asyncio
+async def test_async_function(mock_session):
+    # Setup
+    mock_response = AsyncMock()
+    mock_response.text.return_value = '{"key": "value"}'
+    mock_session.request.return_value.__aenter__.return_value = mock_response
+    
+    # Execute
+    client = AsyncClient(session=mock_session)
+    result = await client.get_data()  # MUST use await here
+    
+    # Assert
+    assert result["key"] == "value"
+```
 
 CRITICAL PROBLEMS TO AVOID:
-1. NEVER call fixtures directly in test functions or within other fixtures
-2. ALWAYS pass fixture references as parameters to test functions
-3. When mocking async functions, you MUST use AsyncMock or a mock that returns a Future/coroutine
-4. Make sure mocks for async functions return awaitable objects
-5. When mocking libraries like aiohttp, the side_effect or return_value MUST be awaitable (like AsyncMock())
-6. Always properly define all variables before use
-7. For AsyncMock, import it from unittest.mock (from unittest.mock import AsyncMock)
-8. NEVER invent module paths that don't exist (e.g., don't treat a module as a package)
-9. DO NOT create nested import paths unless they actually exist in the project
-10. DO verify that all imports resolve correctly for the project structure
+1. NEVER forget to add @pytest.mark.asyncio to test functions that call async methods
+2. NEVER forget to await async method calls
+3. NEVER call fixtures directly in test functions - pass fixture references as parameters
+4. ALWAYS mock both aenter and aexit for context managers
+5. NEVER use MagicMock for methods that will be awaited - use AsyncMock instead
+6. Ensure all imports resolve correctly for the project structure
 
 IMPORT STRUCTURE RULES:
 1. Examine the actual module structure of the project before creating imports
