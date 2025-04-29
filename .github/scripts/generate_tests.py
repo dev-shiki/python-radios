@@ -405,7 +405,7 @@ ASYNC MOCKING RULES (CRITICAL):
     mock_response.json.return_value = {"key": "value"}
 
     # Then set up the session mock correctly
-    mock_session = AsyncMock()
+    mock_session.request = AsyncMock()
     mock_session.request.return_value = AsyncMock()
     mock_session.request.return_value.__aenter__.return_value = mock_response
     ```
