@@ -389,51 +389,6 @@ TEST GENERATION REQUIREMENTS:
 20. Verify error cases with proper exception context management
 21. CAREFULLY examine the project structure and produce CORRECT import paths that match the actual module organization
 
-ASYNC FUNCTION TESTING - CRITICAL REQUIREMENTS:
-1. ALWAYS use AsyncMock from unittest.mock (from unittest.mock import AsyncMock) for ANY async function
-2. When mocking aiohttp.ClientSession, use patch("aiohttp.ClientSession") and configure its request method:
-   ```python
-   mock_session.return_value.request = AsyncMock()
-   mock_response = AsyncMock()
-   mock_response.text.return_value = '{"data": "value"}'
-   mock_response.headers = {"Content-Type": "application/json"}
-   mock_session.return_value.request.return_value.__aenter__.return_value = mock_response
-   ```
-3. For aiohttp.ClientSession.request, ALWAYS mock the entire chain:
-   - request() → returns a context manager
-   - context manager.__aenter__() → returns response
-   - So the full chain is: session.request().____aenter__().return_value = mock_response
-4. For EVERY async function mock, make sure each level of the chain is AsyncMock:
-   ```python
-   # CORRECT
-   mock_session = AsyncMock()
-   mock_session.request = AsyncMock()
-   mock_session.request.return_value = AsyncMock()
-   mock_session.request.return_value.__aenter__ = AsyncMock()
-   mock_session.request.return_value.__aenter__.return_value = AsyncMock()
-   
-   # INCORRECT - will cause "object MagicMock can't be used in 'await' expression"
-   mock_session = MagicMock()  # Should be AsyncMock
-   ```
-5. For patching specific module functions:
-   ```python
-   # Patch at the module level, not the instance level
-   @patch("aiohttp.ClientSession")
-   # Make sure to configure the entire chain
-   def test_function(self, mock_session):
-       mock_session.return_value.request = AsyncMock()
-       # Setup chain properly
-   ```
-6. When testing DNSResolver:
-   ```python
-   @patch("aiodns.DNSResolver")
-   def test_with_dns(self, mock_resolver):
-       # Mock resolver.query to return an AsyncMock
-       mock_resolver.return_value.query = AsyncMock()
-       # Setup return values for the query
-       mock_resolver.return_value.query.return_value = [MagicMock(host="test.example.com")]
-   ```
-
 CRITICAL PROBLEMS TO AVOID:
 1. NEVER call fixtures directly in test functions or within other fixtures
 2. ALWAYS pass fixture references as parameters to test functions
