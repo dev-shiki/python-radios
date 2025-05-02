@@ -1,50 +1,57 @@
 #!/usr/bin/env python3
 """
-Generator Test Otomatis dengan Claude API via OpenRouter
+Universal Test Generator
 
-Utilitas untuk menghasilkan test case untuk modul Python dengan coverage rendah
-menggunakan Claude API melalui OpenRouter dengan pengelolaan rate limit.
+Generate high-quality test cases for Python modules using AI.
+This tool analyzes code, identifies low coverage areas, and creates
+appropriate tests that follow testing best practices.
 
-Penggunaan:
-  python test_generator.py --module path/to/module.py --coverage-threshold 80 \
-    --api-key YOUR_OPENROUTER_API_KEY --rate-limit-rpm 5 --rate-limit-input-tpm 25000 \
-    --rate-limit-output-tpm 5000
+Author: AI Test Generator Team
+License: MIT
 """
 
 import os
 import sys
+import json
 import time
-import argparse
 import logging
+import argparse
 import xml.etree.ElementTree as ET
 import re
+import ast
 import threading
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-import openai
-from openai import OpenAI
+from typing import List, Dict, Any, Optional, Set, Tuple
 
-# Konfigurasi logging
+# Optional imports - fallback gracefully if not available
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+
+# Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger("claude-test-generator")
+logger = logging.getLogger("ai-test-generator")
 
 @dataclass
 class RateLimitConfig:
-    """Konfigurasi Rate Limit untuk API"""
-    requests_per_minute: int
-    input_tokens_per_minute: int 
-    output_tokens_per_minute: int
+    """Rate limit configuration for API calls"""
+    requests_per_minute: int = 5
+    input_tokens_per_minute: int = 25000  
+    output_tokens_per_minute: int = 5000
 
 class ApiRateLimiter:
     """
-    Rate limiter untuk API yang mempertimbangkan:
-    - Jumlah permintaan per menit
-    - Batas token input per menit
-    - Batas token output per menit
+    Rate limiter for API calls that tracks:
+    - Requests per minute
+    - Input tokens per minute 
+    - Output tokens per minute
     """
     
     def __init__(self, config: RateLimitConfig):
@@ -53,105 +60,227 @@ class ApiRateLimiter:
         self.input_token_usage = deque()
         self.output_token_usage = deque()
         self.lock = threading.RLock()
-        logger.info(f"Rate limiter initiated with config: {config}")
         
     def _cleanup_old_entries(self, queue_data, time_window=60):
-        """Membersihkan entri yang lebih lama dari time_window detik"""
+        """Remove entries older than time_window seconds"""
         current_time = time.time()
         while queue_data and (current_time - queue_data[0][0]) > time_window:
             queue_data.popleft()
     
     def _get_current_usage(self, queue_data):
-        """Mendapatkan penggunaan saat ini dalam periode rate limiting"""
+        """Get current usage within rate limit period"""
         self._cleanup_old_entries(queue_data)
         return sum(item[1] for item in queue_data)
         
     def wait_for_capacity(self, input_tokens: int, estimated_output_tokens: int) -> None:
         """
-        Menunggu sampai ada kapasitas yang cukup untuk mengirim permintaan baru.
-        Memblokir sampai semua kondisi rate limit terpenuhi.
+        Wait until there's capacity to send a new request.
+        Blocks until all rate limit conditions are met.
         """
         while True:
             with self.lock:
-                # Membersihkan entri lama
+                # Clean up old entries
                 self._cleanup_old_entries(self.request_timestamps)
                 self._cleanup_old_entries(self.input_token_usage)
                 self._cleanup_old_entries(self.output_token_usage)
                 
-                # Mengecek penggunaan saat ini
+                # Check current usage
                 current_requests = len(self.request_timestamps)
                 current_input_tokens = self._get_current_usage(self.input_token_usage)
                 current_output_tokens = self._get_current_usage(self.output_token_usage)
                 
-                # Cek apakah semua kondisi terpenuhi
+                # Check if all conditions are met
                 requests_ok = current_requests < self.config.requests_per_minute
                 input_tokens_ok = (current_input_tokens + input_tokens) <= self.config.input_tokens_per_minute
                 output_tokens_ok = (current_output_tokens + estimated_output_tokens) <= self.config.output_tokens_per_minute
                 
                 if requests_ok and input_tokens_ok and output_tokens_ok:
-                    # Cukup kapasitas, catat penggunaan baru
+                    # Record new usage
                     current_time = time.time()
                     self.request_timestamps.append((current_time, 1))
                     self.input_token_usage.append((current_time, input_tokens))
                     self.output_token_usage.append((current_time, estimated_output_tokens))
-                    
-                    logger.info(f"Request allowed - Usage stats: Requests={current_requests+1}/{self.config.requests_per_minute}, " +
-                                f"Input tokens={(current_input_tokens + input_tokens)}/{self.config.input_tokens_per_minute}, " +
-                                f"Output tokens={(current_output_tokens + estimated_output_tokens)}/{self.config.output_tokens_per_minute}")
                     return
             
-            # Jika tidak ada kapasitas yang cukup, tunggu sebentar
-            time_to_wait = 2.0  # Tunggu 2 detik sebelum mencoba lagi
-            logger.info(f"Rate limit tercapai, menunggu {time_to_wait} detik sebelum mencoba lagi...")
+            # If capacity not available, wait before retrying
+            time_to_wait = 2.0  # Wait 2 seconds before trying again
+            logger.info(f"Rate limit reached, waiting {time_to_wait} seconds...")
             time.sleep(time_to_wait)
     
     def record_actual_usage(self, actual_output_tokens: int):
         """
-        Memperbarui penggunaan token output aktual setelah permintaan selesai.
-        Ini untuk memastikan akurasi pelacakan token output.
+        Update actual output token usage after request completes.
         """
         with self.lock:
             if self.output_token_usage:
-                # Perbarui entri terakhir dengan nilai sebenarnya
+                # Update last entry with actual value
                 timestamp, _ = self.output_token_usage.pop()
                 self.output_token_usage.append((timestamp, actual_output_tokens))
-                logger.info(f"Updated output token usage to {actual_output_tokens}")
 
 class TokenCounter:
-    """Utilitas untuk menghitung token dalam teks"""
+    """Utilities for counting tokens in text"""
     
     @staticmethod
     def estimate_tokens(text: str) -> int:
         """
-        Perkiraan kasar berapa token dalam teks.
-        Pendekatan sederhana: ~4 karakter per token untuk bahasa Inggris.
+        Rough estimate of tokens in text.
+        Simple approach: ~4 characters per token for English.
         """
         return max(1, len(text) // 4)
     
     @staticmethod
-    def count_tokens_with_openai(client: OpenAI, text: str, model: str) -> int:
+    def count_tokens_with_model(client, text: str, model: str) -> int:
         """
-        Menghitung token menggunakan tiktoken atau perkiraan.
+        Count tokens using available methods.
+        Falls back to estimation if specific methods fail.
         """
         try:
-            import tiktoken
-            encoding = tiktoken.encoding_for_model(model.split('/')[-1])
-            return len(encoding.encode(text))
+            # Try tiktoken if available (works with OpenAI models)
+            try:
+                import tiktoken
+                try:
+                    encoding = tiktoken.encoding_for_model(model.split('/')[-1])
+                    return len(encoding.encode(text))
+                except:
+                    # Default encoding if model-specific one not available
+                    encoding = tiktoken.get_encoding("cl100k_base")
+                    return len(encoding.encode(text))
+            except ImportError:
+                pass
+            
+            # Fallback to client's token counting if available
+            if hasattr(client, 'count_tokens'):
+                token_count = client.count_tokens(text)
+                if hasattr(token_count, 'tokens'):
+                    return token_count.tokens
+                return token_count
+            
         except Exception as e:
-            logger.warning(f"Gagal menghitung token dengan tiktoken: {e}")
-            # Fallback ke estimasi kasar
-            return TokenCounter.estimate_tokens(text)
+            logger.warning(f"Failed to count tokens: {e}")
+        
+        # Final fallback to estimation
+        return TokenCounter.estimate_tokens(text)
 
-class CoverageAnalyzer:
-    """Menganalisis laporan coverage untuk mengidentifikasi area dengan coverage rendah"""
+class CodeAnalyzer:
+    """
+    Analyzes Python code to extract useful information for test generation
+    """
     
     @staticmethod
-    def parse_coverage_data(module_path: str, coverage_file: str = "coverage.xml") -> dict:
+    def extract_imports(code: str) -> List[str]:
+        """Extract import statements from code"""
+        try:
+            # Parse code into AST
+            tree = ast.parse(code)
+            imports = []
+            
+            # Extract all import statements
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for name in node.names:
+                        imports.append(f"import {name.name}")
+                elif isinstance(node, ast.ImportFrom):
+                    module = node.module or ''
+                    names = ', '.join(name.name for name in node.names)
+                    imports.append(f"from {module} import {names}")
+                    
+            return imports
+        except:
+            # Fallback to regex if AST parsing fails
+            import_pattern = re.compile(r'^(?:from\s+\S+\s+)?import\s+.+', re.MULTILINE)
+            return import_pattern.findall(code)
+    
+    @staticmethod
+    def extract_classes_and_methods(code: str) -> Tuple[List[Dict], List[Dict]]:
+        """Extract classes and methods/functions from code"""
+        try:
+            # Parse code into AST
+            tree = ast.parse(code)
+            classes = []
+            functions = []
+            
+            # Extract classes and their methods
+            for node in tree.body:
+                if isinstance(node, ast.ClassDef):
+                    methods = []
+                    for child in node.body:
+                        if isinstance(child, ast.FunctionDef):
+                            methods.append({
+                                'name': child.name,
+                                'async': isinstance(child, ast.AsyncFunctionDef),
+                                'args': [arg.arg for arg in child.args.args if arg.arg != 'self'],
+                                'line': child.lineno
+                            })
+                    
+                    classes.append({
+                        'name': node.name,
+                        'methods': methods,
+                        'line': node.lineno
+                    })
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    functions.append({
+                        'name': node.name,
+                        'async': isinstance(node, ast.AsyncFunctionDef),
+                        'args': [arg.arg for arg in node.args.args],
+                        'line': node.lineno
+                    })
+            
+            return classes, functions
+        except Exception as e:
+            logger.warning(f"Failed to extract classes and methods: {e}")
+            return [], []
+    
+    @staticmethod
+    def detect_framework_requirements(code: str) -> Dict[str, bool]:
+        """Detect testing framework requirements from code"""
+        requirements = {
+            'needs_pytest': False,
+            'needs_unittest': False,
+            'needs_pytest_mock': False, 
+            'needs_pytest_asyncio': False,
+            'has_async': False,
+            'needs_mock': False,
+            'needs_patch': False,
+            'needs_asyncmock': False,
+        }
+        
+        # Detect async code
+        if 'async ' in code or 'await ' in code:
+            requirements['has_async'] = True
+            requirements['needs_pytest_asyncio'] = True
+            requirements['needs_asyncmock'] = True
+        
+        # Detect mock usage
+        if 'mock' in code.lower():
+            requirements['needs_mock'] = True
+            requirements['needs_pytest_mock'] = True
+        
+        if 'patch' in code.lower():
+            requirements['needs_patch'] = True
+        
+        # Detect testing framework
+        if 'pytest' in code.lower():
+            requirements['needs_pytest'] = True
+        elif 'unittest' in code.lower():
+            requirements['needs_unittest'] = True
+        else:
+            # Default to pytest if no framework detected
+            requirements['needs_pytest'] = True
+        
+        return requirements
+
+class CoverageAnalyzer:
+    """
+    Analyzes coverage report to identify areas with low coverage
+    """
+    
+    @staticmethod
+    def parse_coverage_data(module_path: str, coverage_file: str = "coverage.xml") -> Dict[str, Any]:
         """
-        Mengekstrak data coverage untuk modul tertentu dari laporan coverage XML
+        Extract coverage data for a specific module from coverage XML report
         """
         if not os.path.exists(coverage_file):
-            logger.error(f"File coverage tidak ditemukan: {coverage_file}")
+            logger.error(f"Coverage file not found: {coverage_file}")
             return {}
         
         try:
@@ -166,17 +295,17 @@ class CoverageAnalyzer:
                 "low_coverage_functions": []
             }
             
-            # Temukan modul dalam laporan
+            # Find module in report
             for class_elem in root.findall('.//class'):
                 filename = class_elem.attrib.get('filename')
                 
                 if filename == module_path:
-                    # Dapatkan coverage rate
+                    # Get coverage rate
                     line_rate = float(class_elem.attrib.get('line-rate', 0))
                     coverage_data["line_rate"] = line_rate
                     coverage_data["coverage_pct"] = line_rate * 100
                     
-                    # Dapatkan line coverage detail
+                    # Get line coverage details
                     for line in class_elem.findall('.//line'):
                         line_num = int(line.attrib.get('number', 0))
                         hits = int(line.attrib.get('hits', 0))
@@ -188,122 +317,195 @@ class CoverageAnalyzer:
                     
                     break
             
-            # Identifikasi fungsi dengan coverage rendah
+            # Identify functions with low coverage
             if os.path.exists(module_path):
-                coverage_data["low_coverage_functions"] = CoverageAnalyzer.identify_low_coverage_functions(
-                    module_path, coverage_data["covered_lines"], coverage_data["uncovered_lines"]
-                )
+                with open(module_path, 'r', encoding='utf-8') as f:
+                    module_code = f.read()
+                
+                # Use code analysis to identify functions and their coverage
+                classes, functions = CodeAnalyzer.extract_classes_and_methods(module_code)
+                all_funcs = functions.copy()
+                
+                # Add class methods to all_funcs
+                for cls in classes:
+                    for method in cls['methods']:
+                        method['class'] = cls['name']
+                        all_funcs.append(method)
+                
+                # For each function, calculate its coverage
+                for func in all_funcs:
+                    lines = set(range(func['line'], func['line'] + 10))  # Rough estimate of function lines
+                    covered_in_func = len(lines.intersection(set(coverage_data["covered_lines"])))
+                    total_in_func = len(lines)
+                    
+                    if total_in_func > 0:
+                        coverage_pct = (covered_in_func / total_in_func) * 100
+                        
+                        if coverage_pct < 80:  # Consider below 80% as low coverage
+                            coverage_data["low_coverage_functions"].append({
+                                "name": func['name'],
+                                "class": func.get('class'),
+                                "async": func.get('async', False),
+                                "line": func['line'],
+                                "coverage_pct": coverage_pct
+                            })
             
             return coverage_data
             
         except Exception as e:
-            logger.error(f"Error saat parsing laporan coverage: {e}")
+            logger.error(f"Error parsing coverage report: {e}")
             return {}
+
+class TestPromptGenerator:
+    """
+    Generates prompts for AI to create tests based on code analysis
+    """
     
     @staticmethod
-    def identify_low_coverage_functions(module_path: str, covered_lines: list, uncovered_lines: list) -> list:
+    def create_system_prompt() -> str:
+        """Create system prompt for AI"""
+        return (
+            "You are a Python testing expert specializing in writing high-quality test code. "
+            "You ONLY respond with valid, executable Python test code without explanations, commentary, or markdown. "
+            "Never start with explanations or questions - just provide working test code that can be directly saved to a file."
+        )
+    
+    @staticmethod
+    def create_user_prompt(
+        module_path: str, 
+        module_code: str,
+        import_path: str,
+        coverage_data: Dict[str, Any],
+        requirements: Dict[str, bool],
+        test_framework: str = "pytest"
+    ) -> str:
         """
-        Mengidentifikasi fungsi-fungsi dengan coverage rendah dalam modul
+        Create detailed user prompt for AI based on code analysis
         """
-        try:
-            with open(module_path, 'r', encoding='utf-8') as f:
-                code = f.read()
-                
-            # Regex untuk menemukan definisi fungsi
-            function_pattern = re.compile(r'^\s*def\s+(\w+)\s*\(', re.MULTILINE)
-            
-            functions = []
-            lines = code.split('\n')
-            
-            # Temukan semua definisi fungsi
-            for match in function_pattern.finditer(code):
-                func_name = match.group(1)
-                line_num = code[:match.start()].count('\n') + 1
-                
-                # Temukan akhir fungsi (estimasi dengan indentasi)
-                end_line = line_num
-                indent_level = len(lines[line_num - 1]) - len(lines[line_num - 1].lstrip())
-                
-                for i in range(line_num, len(lines)):
-                    line = lines[i]
-                    if line.strip() and not line.isspace():
-                        # Jika ini bukan baris kosong dan indentasi kurang dari atau sama dengan fungsi induk
-                        if len(line) - len(line.lstrip()) <= indent_level and line.lstrip().startswith(('def ', 'class ')):
-                            end_line = i - 1
-                            break
-                    if i == len(lines) - 1:
-                        end_line = i
-                
-                # Hitung baris kode (skip docstring dan komentar)
-                code_lines = []
-                inside_docstring = False
-                docstring_delim = None
-                
-                for i in range(line_num - 1, end_line):
-                    line = lines[i].strip()
-                    
-                    # Skip docstring
-                    if inside_docstring:
-                        if docstring_delim in line:
-                            inside_docstring = False
-                        continue
-                    
-                    if line.startswith('"""') or line.startswith("'''"):
-                        inside_docstring = True
-                        docstring_delim = line[:3]
-                        continue
-                    
-                    # Skip komentar
-                    if not line.startswith('#') and line:
-                        code_lines.append(i + 1)
-                
-                # Hitung coverage
-                code_line_count = len(code_lines)
-                covered_count = sum(1 for line in code_lines if line in covered_lines)
-                
-                if code_line_count > 0:
-                    coverage_pct = covered_count / code_line_count * 100
-                else:
-                    coverage_pct = 100  # Jika tidak ada baris kode (misalnya hanya docstring)
-                
-                functions.append({
-                    "name": func_name,
-                    "start_line": line_num,
-                    "end_line": end_line,
-                    "code_lines": code_line_count,
-                    "covered_lines": covered_count,
-                    "coverage_pct": coverage_pct
-                })
-            
-            # Filter fungsi dengan coverage rendah (<80%)
-            low_coverage_funcs = [f for f in functions if f["coverage_pct"] < 80]
-            
-            return sorted(low_coverage_funcs, key=lambda x: x["coverage_pct"])
-            
-        except Exception as e:
-            logger.error(f"Error saat mengidentifikasi fungsi dengan coverage rendah: {e}")
-            return []
+        # Get module name for imports
+        module_name = os.path.basename(module_path)
+        if module_name.endswith('.py'):
+            module_name = module_name[:-3]
+        
+        # Format coverage info
+        coverage_pct = coverage_data.get("coverage_pct", 0)
+        low_coverage_functions = coverage_data.get("low_coverage_functions", [])
+        
+        # Build string of low coverage functions information
+        low_coverage_info = ""
+        if low_coverage_functions:
+            low_coverage_info = "Low coverage functions:\n"
+            for func in low_coverage_functions:
+                class_prefix = f"{func.get('class')}." if func.get('class') else ""
+                low_coverage_info += f"- {class_prefix}{func['name']} (line {func['line']}): {func['coverage_pct']:.1f}% coverage\n"
+        else:
+            low_coverage_info = "All functions have partial coverage that needs improvement."
+        
+        # Create dependency guidance
+        dependency_guidance = []
+        if requirements.get('needs_pytest_asyncio', False):
+            dependency_guidance.append("- This project uses async functions: import pytest.mark.asyncio and unittest.mock.AsyncMock")
+        if requirements.get('needs_pytest_mock', False):
+            dependency_guidance.append("- This project uses pytest-mock: include the 'mocker' fixture in test functions")
+        if requirements.get('has_async', False) and requirements.get('needs_mock', False):
+            dependency_guidance.append("- For mocking async functions, use AsyncMock and ensure proper awaits")
+        
+        dependency_guidance_text = "\n".join(dependency_guidance) if dependency_guidance else "No special dependencies required."
+        
+        # Model requirements
+        model_requirements = []
+        classes, functions = CodeAnalyzer.extract_classes_and_methods(module_code)
+        
+        # Check for specific classes or patterns in code
+        if any('Radio' in cls['name'] for cls in classes):
+            model_requirements.append("- Ensure proper initialization of model classes with required fields")
+            model_requirements.append("- When mocking responses, include ALL required fields from models to avoid MissingField errors")
+        
+        if 'json' in module_code:
+            model_requirements.append("- For JSON responses, ensure the mock data matches the expected model structure completely")
+        
+        model_requirements_text = "\n".join(model_requirements) if model_requirements else "No special model requirements detected."
+        
+        # Create the full prompt
+        prompt = f"""
+# TEST GENERATION ASSIGNMENT
+
+Write clean, production-quality {test_framework} test code for this Python module that currently has {coverage_pct:.1f}% test coverage.
+
+## MODULE DETAILS
+- Filename: {module_name}.py
+- Import path: {import_path}
+- Current coverage: {coverage_pct:.1f}%
+
+## MODULE CODE
+```python
+{module_code}
+```
+
+## COVERAGE ANALYSIS
+{low_coverage_info}
+
+## FRAMEWORK REQUIREMENTS
+{dependency_guidance_text}
+
+## MODEL REQUIREMENTS
+{model_requirements_text}
+
+## STRICT GUIDELINES
+1. Write ONLY valid Python test code with no explanations or markdown
+2. Include proper imports for ALL required packages and modules
+3. Import the module under test correctly: `from {import_path} import *`
+4. Focus on COMPLETE test coverage for functions with low coverage
+5. For mock responses, include ALL required fields in model dictionaries/JSON
+6. Never skip required fields in mock responses - check actual model structure
+7. Use appropriate fixtures and test setup for the testing framework
+8. When asserting values, ensure case sensitivity and exact type matching
+9. Create descriptive test function names that indicate what is being tested
+10. Include proper error handling and edge case testing
+11. If working with model classes, ensure validation checks pass
+
+Your response MUST be valid Python code that can be directly saved and executed with {test_framework}.
+"""
+        return prompt.strip()
 
 class TestGenerator:
     """
-    Generator test yang menggunakan Claude API melalui OpenRouter untuk membuat test case
+    Main class to generate tests using AI
     """
     
-    def __init__(self, api_key: str, model: str = "anthropic/claude-3.5-haiku-20241022", 
-                 site_url: str = "https://test-generator-app.com", site_name: str = "Test Generator",
-                 rate_limiter: ApiRateLimiter = None):
-        self.client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=api_key
-        )
+    def __init__(
+        self, 
+        api_key: str, 
+        model: str = "anthropic/claude-3.5-haiku-20241022", 
+        site_url: str = "https://test-generator-app.com", 
+        site_name: str = "Test Generator",
+        rate_limiter: Optional[ApiRateLimiter] = None,
+        use_openrouter: bool = True
+    ):
+        """
+        Initialize test generator with API credentials and configuration
+        """
         self.model = model
         self.site_url = site_url
         self.site_name = site_name
         self.rate_limiter = rate_limiter
+        
+        # Initialize appropriate client based on configuration
+        if use_openrouter and OPENAI_AVAILABLE:
+            self.client = OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=api_key
+            )
+            self.api_type = "openrouter"
+        elif OPENAI_AVAILABLE:
+            self.client = OpenAI(api_key=api_key)
+            self.api_type = "openai"
+        else:
+            raise ImportError("OpenAI package is required but not installed. Install with: pip install openai")
     
     def generate_test(self, module_path: str, coverage_data: dict, test_framework: str = "pytest") -> str:
         """
-        Generate test cases using Claude API via OpenRouter with improved validation
+        Generate test cases using AI
         """
         try:
             # Read module code
@@ -327,89 +529,22 @@ class TestGenerator:
             else:
                 full_import_path = module_name
                 
-            # Prepare coverage information for prompt
-            coverage_pct = coverage_data.get("coverage_pct", 0)
-            low_coverage_functions = coverage_data.get("low_coverage_functions", [])
+            # Analyze code to detect framework requirements
+            requirements = CodeAnalyzer.detect_framework_requirements(module_code)
             
-            # Build string of low coverage functions information
-            low_coverage_info = ""
-            if low_coverage_functions:
-                low_coverage_info = "Low coverage functions:\n"
-                for func in low_coverage_functions:
-                    low_coverage_info += f"- {func['name']} (lines {func['start_line']}-{func['end_line']}): {func['coverage_pct']:.1f}% coverage\n"
-            else:
-                low_coverage_info = "All functions have partial coverage that needs improvement."
-            
-            # Determine module type based on code analysis
-            is_class_based = "class " in module_code
-            has_async = "async " in module_code
-            
-            # Look for specific package imports that might be needed
-            needs_pytest_mock = "mocker" in module_code
-            needs_async_mock = "AsyncMock" in module_code or "async def" in module_code
-            
-            # Craft system prompt to set expectations
-            system_prompt = (
-                "You are a Python testing expert specializing in writing high-quality test code. "
-                "You ONLY respond with valid, executable Python code without any explanations, commentary, or markdown. "
-                "Never start with explanations or questions - just provide working test code that can be directly saved to a file."
+            # Create prompts
+            system_prompt = TestPromptGenerator.create_system_prompt()
+            user_prompt = TestPromptGenerator.create_user_prompt(
+                module_path, 
+                module_code, 
+                full_import_path, 
+                coverage_data, 
+                requirements,
+                test_framework
             )
             
-            # Identify specific test dependencies based on module analysis
-            test_dependencies = []
-            if "pytest" in module_code or test_framework == "pytest":
-                test_dependencies.append("pytest")
-            if "async" in module_code:
-                test_dependencies.append("pytest-asyncio")
-            if "mock" in module_code or "patch" in module_code:
-                test_dependencies.append("pytest-mock")
-            
-            # Craft the optimized user prompt for Claude
-            prompt_text = f"""
-    # TEST GENERATION ASSIGNMENT
-
-    Write complete, production-ready {test_framework} test code for this Python module that currently has {coverage_pct:.1f}% test coverage.
-
-    ## MODULE DETAILS
-    - Filename: {module_name}.py
-    - Import path: {full_import_path}
-    - Current coverage: {coverage_pct:.1f}%
-    - {'Contains async code - use pytest.mark.asyncio and AsyncMock' if has_async else ''}
-
-    ## MODULE CODE
-    ```python
-    {module_code}
-    ```
-
-    ## COVERAGE ANALYSIS
-    {low_coverage_info}
-
-    ## REQUIRED DEPENDENCIES
-    {'- This project uses pytest-mock: import pytest_mock and use the mocker fixture' if needs_pytest_mock else ''}
-    {'- AsyncMock should be imported from unittest.mock' if needs_async_mock else ''}
-    {'- For pytest.mark.asyncio, add proper fixture configuration' if has_async else ''}
-
-    ## STRICT REQUIREMENTS
-    1. Write ONLY runnable Python test code, with no explanations or questions
-    2. Include proper imports at the top:
-    - Import pytest, unittest.mock.patch, unittest.mock.AsyncMock if needed
-    - Add 'import pytest_mock' if using the mocker fixture
-    - Import the module under test using: `from {full_import_path} import *`
-    3. If using 'mocker' fixture, add appropriate fixture setup for pytest-mock
-    4. Focus primarily on functions with low/no coverage
-    5. Use appropriate fixtures, mocks, and patches where needed
-    6. Cover edge cases, boundary conditions, and error handling
-    7. Follow standard {test_framework} naming and organization conventions
-    8. Ensure all tests are independent and do not rely on external resources
-    9. If using AsyncMock, import it properly: `from unittest.mock import AsyncMock`
-    10. Include descriptive docstrings for test functions
-
-    IMPORTANT: Your response MUST be valid Python code that can be executed with pytest. 
-    DO NOT include any explanatory text, markdown formatting, or conversational elements.
-    """
-            
             # Count tokens and estimate output
-            input_tokens = TokenCounter.count_tokens_with_openai(self.client, prompt_text, self.model)
+            input_tokens = TokenCounter.count_tokens_with_model(self.client, user_prompt, self.model)
             estimated_output_tokens = 3000  # Conservative estimate
             
             logger.info(f"Prompt contains {input_tokens} tokens, estimated output {estimated_output_tokens} tokens")
@@ -418,16 +553,16 @@ class TestGenerator:
             if self.rate_limiter:
                 self.rate_limiter.wait_for_capacity(input_tokens, estimated_output_tokens)
             
-            # Send request to OpenRouter for Claude API
+            # Send request to API
             response = self.client.chat.completions.create(
                 extra_headers={
                     "HTTP-Referer": self.site_url,
                     "X-Title": self.site_name,
-                },
+                } if self.api_type == "openrouter" else {},
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt_text}
+                    {"role": "user", "content": user_prompt}
                 ],
                 max_tokens=4000,
             )
@@ -438,7 +573,7 @@ class TestGenerator:
             if self.rate_limiter:
                 self.rate_limiter.record_actual_usage(actual_output_tokens)
             
-            logger.info(f"Claude used approximately {actual_output_tokens} output tokens")
+            logger.info(f"AI used approximately {actual_output_tokens} output tokens")
             
             # Extract code from response
             test_code = response.choices[0].message.content
@@ -449,76 +584,13 @@ class TestGenerator:
             elif "```" in test_code:
                 test_code = test_code.split("```")[1].split("```")[0].strip()
             
-            # POST-PROCESSING: Ensure we have valid Python code
-            # Remove any conversational elements or non-Python content
-            if not test_code.startswith("import ") and not test_code.startswith("from ") and not test_code.startswith("#!/"):
-                lines = test_code.split('\n')
-                # Find first line that looks like valid Python code (import or class/function definition)
-                for i, line in enumerate(lines):
-                    if (line.startswith("import ") or line.startswith("from ") or 
-                        line.startswith("def ") or line.startswith("class ")):
-                        test_code = '\n'.join(lines[i:])
-                        break
-            
-            # Ensure we have proper imports
-            imports_to_include = []
-            
-            # Add core imports if not present
-            if test_framework == "pytest" and "import pytest" not in test_code:
-                imports_to_include.append("import pytest")
-            
-            # Check for pytest-mock 
-            if "mocker" in test_code and "pytest_mock" not in test_code:
-                imports_to_include.append("import pytest_mock")
-            
-            # Check for AsyncMock
-            if "AsyncMock" in test_code and "from unittest.mock import AsyncMock" not in test_code:
-                imports_to_include.append("from unittest.mock import AsyncMock, patch")
-            elif "patch" in test_code and "unittest.mock" not in test_code:
-                imports_to_include.append("from unittest.mock import patch")
-            
-            # Add import for the module under test if not present
-            module_import = f"from {full_import_path} import *"
-            if module_import not in test_code:
-                imports_to_include.append(module_import)
-            
-            # Add imports at the beginning if needed
-            if imports_to_include:
-                test_code = '\n'.join(imports_to_include) + '\n\n' + test_code
-            
-            # Ensure mocker fixture is available if used
-            if "def test_" in test_code and "mocker" in test_code and "@pytest.fixture" not in test_code and "pytest_mock" not in test_code:
-                # Add pytest-mock fixture setup
-                fixture_setup = """
-    # Add pytest-mock fixture if not automatically available
-    pytest_plugins = ['pytest_mock']
-    """
-                test_code = fixture_setup + "\n" + test_code
-            
-            # Ensure async properly set up if needed
-            if "async def test_" in test_code and "pytest.mark.asyncio" not in test_code:
-                test_code = test_code.replace("async def test_", "@pytest.mark.asyncio\nasync def test_")
-            
-            # Check if session initialization is needed for RadioBrowser class
-            if "RadioBrowser" in test_code and "session=None" in test_code and "radio_browser.session" in test_code:
-                # Fix the session initialization issue
-                if "session=None" in test_code:
-                    test_code = test_code.replace("session=None", "session=MagicMock()")
-                    if "from unittest.mock import MagicMock" not in test_code:
-                        test_code = "from unittest.mock import MagicMock\n" + test_code
-            
-            # Validate that the result is proper Python syntax
-            try:
-                compile(test_code, "<string>", "exec")
-                logger.info("Successfully generated and validated test code")
-            except SyntaxError as e:
-                logger.warning(f"Generated code has syntax error: {e}")
-                # Attempt to fix common issues
-                if "would you like" in test_code.lower() or "i understand" in test_code.lower():
-                    # This looks like conversational text, not code
-                    logger.warning("Detected conversational text in output, attempting fallback generation")
-                    # Create a basic test scaffold
-                    test_code = self._generate_fallback_test(module_path, full_import_path)
+            # Post-process the test code
+            test_code = self._post_process_test_code(
+                test_code, 
+                module_path,
+                full_import_path,
+                requirements
+            )
             
             return test_code
             
@@ -527,154 +599,254 @@ class TestGenerator:
             # If rate limiter exists, record minimal token usage
             if self.rate_limiter:
                 self.rate_limiter.record_actual_usage(1)
-            raise
-
+            
+            # Generate fallback test
+            return self._generate_fallback_test(module_path, full_import_path)
+    
+    def _post_process_test_code(
+        self, 
+        test_code: str, 
+        module_path: str,
+        import_path: str,
+        requirements: Dict[str, bool]
+    ) -> str:
+        """
+        Post-process generated test code to fix common issues
+        """
+        # Check if code seems invalid (conversational)
+        if (not test_code.strip().startswith("import ") and 
+            not test_code.strip().startswith("from ") and 
+            not test_code.strip().startswith("def ") and
+            not test_code.strip().startswith("class ") and
+            not test_code.strip().startswith("#") and
+            "would you like" in test_code.lower() or 
+            "i understand" in test_code.lower()):
+            logger.warning("Detected conversational text in output, generating fallback test")
+            return self._generate_fallback_test(module_path, import_path)
+        
+        # Ensure we have proper imports
+        imports_to_include = []
+        
+        # Add core imports based on requirements
+        if requirements.get('needs_pytest', False) and "import pytest" not in test_code:
+            imports_to_include.append("import pytest")
+        
+        if requirements.get('needs_pytest_mock', False) and "pytest_mock" not in test_code:
+            imports_to_include.append("import pytest_mock")
+            # Add pytest-mock plugin if not present
+            if "pytest_plugins" not in test_code:
+                imports_to_include.append("pytest_plugins = ['pytest_mock']")
+        
+        # Check for AsyncMock
+        if requirements.get('needs_asyncmock', False) and "AsyncMock" in test_code and "from unittest.mock import AsyncMock" not in test_code:
+            imports_to_include.append("from unittest.mock import AsyncMock")
+        
+        # Check for patch
+        if requirements.get('needs_patch', False) and "patch" in test_code and "unittest.mock" not in test_code:
+            if "AsyncMock" in imports_to_include[-1] if imports_to_include else False:
+                # Modify last import to include patch
+                imports_to_include[-1] = "from unittest.mock import AsyncMock, patch"
+            else:
+                imports_to_include.append("from unittest.mock import patch")
+        
+        # Add general mock import if needed
+        if requirements.get('needs_mock', False) and "MagicMock" not in test_code and "unittest.mock import MagicMock" not in test_code:
+            imports_to_include.append("from unittest.mock import MagicMock")
+        
+        # Add import for the module under test if not present
+        module_import = f"from {import_path} import *"
+        if module_import not in test_code:
+            imports_to_include.append(module_import)
+        
+        # Add imports at the beginning if needed
+        if imports_to_include:
+            test_code = '\n'.join(imports_to_include) + '\n\n' + test_code
+        
+        # Ensure async functions have proper decorators
+        if requirements.get('has_async', False) and "async def test_" in test_code and "@pytest.mark.asyncio" not in test_code:
+            lines = test_code.split('\n')
+            processed_lines = []
+            
+            for i, line in enumerate(lines):
+                if line.strip().startswith("async def test_") and not lines[i-1].strip().startswith("@pytest.mark.asyncio"):
+                    processed_lines.append("@pytest.mark.asyncio")
+                processed_lines.append(line)
+            
+            test_code = '\n'.join(processed_lines)
+        
+        # Validate that the result is proper Python syntax
+        try:
+            compile(test_code, "<string>", "exec")
+            logger.info("Successfully generated and validated test code")
+        except SyntaxError as e:
+            logger.warning(f"Generated code has syntax error: {e}")
+            # Fallback to basic test scaffold
+            test_code = self._generate_fallback_test(module_path, import_path)
+        
+        return test_code
+    
     def _generate_fallback_test(self, module_path: str, import_path: str) -> str:
         """
-        Generate a basic test scaffold as fallback when API generation fails
+        Generate a simple test scaffold as fallback when AI generation fails
         """
-        module_name = os.path.basename(module_path)
-        if module_name.endswith('.py'):
-            module_name = module_name[:-3]
+        logger.info("Generating fallback test scaffold")
         
-        # Read module to identify classes and functions
-        with open(module_path, 'r') as f:
-            content = f.read()
+        # Read module to analyze
+        with open(module_path, 'r', encoding='utf-8') as f:
+            module_code = f.read()
         
-        # Check for async code
-        has_async = "async " in content
-        has_radio_browser = "RadioBrowser" in content
+        # Detect code requirements
+        requirements = CodeAnalyzer.detect_framework_requirements(module_code)
+        has_async = requirements.get('has_async', False)
         
-        # Simple regex to find classes and functions
-        classes = re.findall(r'class\s+(\w+)', content)
-        functions = re.findall(r'def\s+(\w+)', content)
-        
-        # Remove private methods
-        functions = [f for f in functions if not f.startswith('_')]
+        # Get classes and functions
+        classes, functions = CodeAnalyzer.extract_classes_and_methods(module_code)
         
         # Create basic test scaffold
-        test_code = f"""
-    import pytest
-    from unittest.mock import patch, AsyncMock, MagicMock
-    import pytest_mock  # Add pytest-mock for mocker fixture
-    from {import_path} import *
+        test_code = f"""# AUTO-GENERATED TEST SCAFFOLD
+import pytest
+from unittest.mock import patch, MagicMock{', AsyncMock' if has_async else ''}
+import pytest_mock  # For mocker fixture
+from {import_path} import *
 
-    # Add pytest-mock plugin
-    pytest_plugins = ['pytest_mock']
+# Register pytest-mock plugin
+pytest_plugins = ['pytest_mock']
 
-    """
+"""
         
         # If asyncio is used, add the needed marker
         if has_async:
             test_code += """
-    # Configure pytest for asyncio tests
-    pytestmark = pytest.mark.asyncio
-    """
+# Configure pytest for asyncio tests
+pytestmark = pytest.mark.asyncio
+"""
         
-        # Add fix for RadioBrowser tests if needed
-        if has_radio_browser:
-            test_code += """
-    @pytest.fixture
-    def radio_browser():
-        # Create RadioBrowser with a mock session
-        browser = RadioBrowser(user_agent="test_agent")
-        browser.session = MagicMock()  # Ensure session is not None
-        return browser
-    """
-        
-        # Add test class for each class found
+        # Add tests for each class
         for cls in classes:
+            cls_name = cls['name']
             test_code += f"""
-    class Test{cls}:
-        @pytest.fixture
-        def {cls.lower()}_instance(self, mocker):
-            return {cls}()
-            
-        {'@pytest.mark.asyncio' if has_async else ''}
-        {'async ' if has_async else ''}def test_{cls.lower()}_initialization(self, {cls.lower()}_instance):
-            assert {cls.lower()}_instance is not None
-    """
+class Test{cls_name}:
+    @pytest.fixture
+    def {cls_name.lower()}_instance(self, mocker):
+        # TODO: Customize fixture with appropriate initialization
+        return {cls_name}()
+    
+"""
+            # Add test for initialization 
+            test_code += f"""    {'@pytest.mark.asyncio' if has_async else ''}
+    {'async ' if has_async else ''}def test_{cls_name.lower()}_initialization(self, {cls_name.lower()}_instance):
+        # Test basic initialization
+        assert {cls_name.lower()}_instance is not None
+    
+"""
+
+            # Add tests for methods
+            for method in cls['methods']:
+                if method['name'].startswith('_'):
+                    continue  # Skip private methods
+                
+                test_code += f"""    {'@pytest.mark.asyncio' if has_async or method['async'] else ''}
+    {'async ' if has_async or method['async'] else ''}def test_{cls_name.lower()}_{method['name']}(self, {cls_name.lower()}_instance, mocker):
+        # TODO: Set up appropriate test parameters and mocks
+        {'mock_result = AsyncMock()' if method['async'] else 'mock_result = MagicMock()'}
+        # TODO: Adjust expected parameters and return values
+        {'result = await ' + cls_name.lower() + '_instance.' + method['name'] + '()' if method['async'] else 'result = ' + cls_name.lower() + '_instance.' + method['name'] + '()'}
+        assert result is not None  # Replace with appropriate assertions
+    
+"""
         
-        # Add test for standalone functions
-        standalone_funcs = [f for f in functions if not any(f"{c}.{f}" in content for c in classes)]
-        for func in standalone_funcs:
+        # Add tests for standalone functions
+        for func in functions:
+            if func['name'].startswith('_'):
+                continue  # Skip private functions
+                
             test_code += f"""
-    {'@pytest.mark.asyncio' if has_async else ''}
-    {'async ' if has_async else ''}def test_{func}(mocker):
-        # TODO: Replace with appropriate test parameters and assertions
-        {'mock_result = MagicMock()' if not has_async else 'mock_result = AsyncMock()'}
-        {'result = ' + func + '()' if not has_async else 'result = await ' + func + '()'}
-        assert result is not None
-    """
+{'@pytest.mark.asyncio' if has_async or func['async'] else ''}
+{'async ' if has_async or func['async'] else ''}def test_{func['name']}(mocker):
+    # TODO: Setup appropriate test parameters and mocks
+    {'mock_result = AsyncMock()' if func['async'] else 'mock_result = MagicMock()'}
+    # TODO: Adjust expected parameters and return values
+    {'result = await ' + func['name'] + '()' if func['async'] else 'result = ' + func['name'] + '()'}
+    assert result is not None  # Replace with appropriate assertions
+"""
         
         return test_code
     
     def write_test_file(self, module_path: str, test_code: str) -> str:
         """
-        Menulis test code ke file yang sesuai
+        Write test code to an appropriate file based on module path
         """
         try:
-            # Tentukan struktur direktori untuk test file
+            # Determine output file structure
             module_rel_path = module_path
             
-            # Jika module_path dimulai dengan 'src/', hilangkan
+            # If module_path starts with 'src/', remove it
             if module_rel_path.startswith('src/'):
                 module_rel_path = module_rel_path[4:]
             
-            # Dapatkan nama modul dan direktori
+            # Get module name and directory
             module_dir = os.path.dirname(module_rel_path)
             module_name = os.path.basename(module_path)
             if module_name.endswith('.py'):
                 module_name = module_name[:-3]
             
-            # Buat direktori test
+            # Create test directory
             test_dir = os.path.join('tests', module_dir)
             os.makedirs(test_dir, exist_ok=True)
             
-            # Tentukan nama file test
+            # Determine test file name
             test_file = os.path.join(test_dir, f'test_{module_name}.py')
             
-            # Jika file sudah ada, buat versi baru
+            # If file already exists, create a new version
             if os.path.exists(test_file):
                 version = 1
                 while os.path.exists(f"{test_dir}/test_{module_name}_v{version}.py"):
                     version += 1
                 test_file = f"{test_dir}/test_{module_name}_v{version}.py"
             
-            # Tulis test code ke file
+            # Write test code to file
             with open(test_file, 'w', encoding='utf-8') as f:
                 f.write(test_code)
             
-            logger.info(f"Test file disimpan ke: {test_file}")
+            logger.info(f"Test file saved to: {test_file}")
             return test_file
             
         except Exception as e:
-            logger.error(f"Error saat menulis test file: {e}")
+            logger.error(f"Error writing test file: {e}")
             raise
 
+
 def main():
-    """Fungsi utama untuk menjalankan test generator"""
-    parser = argparse.ArgumentParser(description='Generate test cases untuk modul Python dengan Claude API via OpenRouter')
+    """
+    Main function to run the test generator
+    """
+    parser = argparse.ArgumentParser(description='AI Test Generator')
     
-    parser.add_argument('--module', required=True, help='Path ke modul yang akan dibuatkan test')
+    parser.add_argument('--module', required=True, help='Path to module for test generation')
     parser.add_argument('--coverage-threshold', type=float, default=80.0, 
-                        help='Threshold persentase minimum coverage yang ditargetkan')
-    parser.add_argument('--coverage-file', default='coverage.xml', help='Path ke file laporan coverage XML')
+                        help='Minimum coverage percentage target')
+    parser.add_argument('--coverage-file', default='coverage.xml', help='Path to coverage XML report')
     parser.add_argument('--test-framework', default='pytest', choices=['pytest', 'unittest'], 
-                        help='Framework test yang digunakan')
+                        help='Test framework to use')
     
-    parser.add_argument('--api-key', help='OpenRouter API key (default: dari env OPENROUTER_API_KEY)')
-    parser.add_argument('--model', default='anthropic/claude-3.5-haiku-20241022', help='Model yang digunakan')
+    parser.add_argument('--api-key', help='API key (default: from env OPENROUTER_API_KEY or OPENAI_API_KEY)')
+    parser.add_argument('--model', default='anthropic/claude-3.5-haiku-20241022', 
+                        help='Model to use')
     parser.add_argument('--site-url', default='https://test-generator-app.com', 
-                        help='URL situs untuk header HTTP-Referer (OpenRouter)')
+                        help='URL for HTTP-Referer header (OpenRouter)')
     parser.add_argument('--site-name', default='Test Generator',
-                        help='Nama situs untuk header X-Title (OpenRouter)')
+                        help='Site name for X-Title header (OpenRouter)')
     
-    parser.add_argument('--rate-limit-rpm', type=int, default=5, help='Request per menit')
-    parser.add_argument('--rate-limit-input-tpm', type=int, default=25000, help='Token input per menit')
-    parser.add_argument('--rate-limit-output-tpm', type=int, default=5000, help='Token output per menit')
+    parser.add_argument('--openrouter', action='store_true', default=True,
+                        help='Use OpenRouter API (default: True)')
+    parser.add_argument('--openai', action='store_true', 
+                        help='Use OpenAI API directly (default: False)')
     
-    parser.add_argument('--verbose', '-v', action='store_true', help='Mode verbose untuk logging')
+    parser.add_argument('--rate-limit-rpm', type=int, default=5, help='Requests per minute')
+    parser.add_argument('--rate-limit-input-tpm', type=int, default=25000, help='Input tokens per minute')
+    parser.add_argument('--rate-limit-output-tpm', type=int, default=5000, help='Output tokens per minute')
+    
+    parser.add_argument('--verbose', '-v', action='store_true', help='Verbose logging')
     
     args = parser.parse_args()
     
@@ -682,18 +854,25 @@ def main():
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     
-    # Validasi modul path
+    # Validate module path
     if not os.path.exists(args.module):
-        logger.error(f"Modul tidak ditemukan: {args.module}")
+        logger.error(f"Module not found: {args.module}")
         sys.exit(1)
     
-    # Dapatkan API key
-    api_key = args.api_key or os.environ.get('OPENROUTER_API_KEY')
-    if not api_key:
-        logger.error("OpenRouter API key tidak ditemukan. Gunakan --api-key atau set env OPENROUTER_API_KEY")
-        sys.exit(1)
+    # Determine API key source
+    if args.openai:
+        args.openrouter = False
+        api_key = args.api_key or os.environ.get('OPENAI_API_KEY')
+        if not api_key:
+            logger.error("OpenAI API key not found. Use --api-key or set OPENAI_API_KEY env variable")
+            sys.exit(1)
+    else:  # Default to OpenRouter
+        api_key = args.api_key or os.environ.get('OPENROUTER_API_KEY')
+        if not api_key:
+            logger.error("OpenRouter API key not found. Use --api-key or set OPENROUTER_API_KEY env variable")
+            sys.exit(1)
     
-    # Buat rate limiter
+    # Create rate limiter
     rate_limit_config = RateLimitConfig(
         requests_per_minute=args.rate_limit_rpm,
         input_tokens_per_minute=args.rate_limit_input_tpm,
@@ -701,34 +880,37 @@ def main():
     )
     rate_limiter = ApiRateLimiter(rate_limit_config)
     
-    # Analisis coverage
-    logger.info(f"Menganalisis coverage untuk modul: {args.module}")
+    # Analyze coverage
+    logger.info(f"Analyzing coverage for module: {args.module}")
     coverage_data = CoverageAnalyzer.parse_coverage_data(args.module, args.coverage_file)
     
     coverage_pct = coverage_data.get("coverage_pct", 0)
-    logger.info(f"Coverage saat ini: {coverage_pct:.1f}%")
+    logger.info(f"Current coverage: {coverage_pct:.1f}%")
     
+    # Skip if coverage already meets threshold
     if coverage_pct >= args.coverage_threshold:
-        logger.info(f"Coverage sudah mencapai threshold ({args.coverage_threshold}%). Tidak perlu generate test.")
+        logger.info(f"Coverage already meets threshold ({args.coverage_threshold}%). No need for test generation.")
         sys.exit(0)
     
     # Generate test
-    logger.info(f"Membuat test dengan {args.model} via OpenRouter")
-    generator = TestGenerator(
-        api_key, 
-        args.model, 
-        args.site_url,
-        args.site_name,
-        rate_limiter
-    )
-    
+    logger.info(f"Generating test with {args.model}")
     try:
+        generator = TestGenerator(
+            api_key, 
+            args.model, 
+            args.site_url,
+            args.site_name,
+            rate_limiter,
+            use_openrouter=args.openrouter
+        )
+        
         test_code = generator.generate_test(args.module, coverage_data, args.test_framework)
         test_file = generator.write_test_file(args.module, test_code)
-        logger.info(f"Test berhasil dibuat: {test_file}")
+        logger.info(f"Test generated successfully: {test_file}")
     except Exception as e:
-        logger.error(f"Gagal membuat test: {e}")
+        logger.error(f"Test generation failed: {e}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
