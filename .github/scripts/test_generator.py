@@ -303,66 +303,69 @@ class TestGenerator:
     
     def generate_test(self, module_path: str, coverage_data: dict, test_framework: str = "pytest") -> str:
         """
-        Menghasilkan test case menggunakan Claude API via OpenRouter
+        Generate test cases using Claude API via OpenRouter
         """
         try:
-            # Baca kode modul
+            # Read module code
             with open(module_path, 'r', encoding='utf-8') as f:
                 module_code = f.read()
             
-            # Siapkan informasi coverage untuk prompt
+            # Prepare coverage information for prompt
             coverage_pct = coverage_data.get("coverage_pct", 0)
             low_coverage_functions = coverage_data.get("low_coverage_functions", [])
             
-            # Buat string informasi fungsi dengan coverage rendah
+            # Build string of low coverage functions information
             low_coverage_info = ""
             if low_coverage_functions:
-                low_coverage_info = "Fungsi dengan coverage rendah:\n"
+                low_coverage_info = "Low coverage functions:\n"
                 for func in low_coverage_functions:
-                    low_coverage_info += f"- {func['name']} (baris {func['start_line']}-{func['end_line']}): {func['coverage_pct']:.1f}% coverage\n"
+                    low_coverage_info += f"- {func['name']} (lines {func['start_line']}-{func['end_line']}): {func['coverage_pct']:.1f}% coverage\n"
             else:
-                low_coverage_info = "Semua fungsi memiliki coverage parsial, perlu ditingkatkan secara keseluruhan."
+                low_coverage_info = "All functions have partial coverage that needs improvement."
             
-            # Buat prompt untuk Claude
+            # Craft the optimized prompt for Claude
             module_name = os.path.basename(module_path)
             prompt_text = f"""
-            Buatkan test case untuk modul Python berikut yang memiliki coverage rendah ({coverage_pct:.1f}%).
-            
-            Nama file: {module_name}
-            Path: {module_path}
-            
-            Kode modul:
+            # TEST GENERATION TASK
+
+            Create comprehensive {test_framework} test cases for the Python module below, which currently has {coverage_pct:.1f}% test coverage.
+
+            ## MODULE DETAILS
+            - Filename: {module_name}
+            - Path: {module_path}
+
+            ## SOURCE CODE
             ```python
             {module_code}
             ```
-            
-            Informasi coverage:
+
+            ## COVERAGE ANALYSIS
             {low_coverage_info}
-            
-            Buat test case menggunakan {test_framework} untuk meningkatkan coverage. 
-            Fokuskan pada fungsi yang memiliki coverage rendah dan tambahkan test untuk edge case.
-            
-            Struktur test sesuai dengan best practice {test_framework} dengan:
-            1. Import yang diperlukan
-            2. Test fixture jika dibutuhkan
-            3. Test case yang jelas untuk setiap fungsi/method
-            4. Mocks atau stubs sesuai kebutuhan
-            5. Assertions yang tepat
-            
-            Hanya berikan kode test saja, tanpa penjelasan atau komentar lainnya.
+
+            ## REQUIREMENTS
+            1. Focus primarily on the functions with low or no coverage
+            2. Write tests that achieve maximum line coverage
+            3. Include tests for edge cases, boundary conditions, and error handling
+            4. Follow {test_framework} best practices
+            5. Use appropriate mocking where necessary for external dependencies
+            6. Ensure assertions verify both expected function outputs and side effects
+            7. Organize tests logically with clear and descriptive names
+
+            ## OUTPUT FORMAT
+            Return ONLY the complete test code without explanations or markdown formatting. The output should be valid Python code that can be saved directly to a file and executed with {test_framework}.
             """
             
-            # Hitung token dan perkirakan output
+            # Count tokens and estimate output
             input_tokens = TokenCounter.count_tokens_with_openai(self.client, prompt_text, self.model)
-            estimated_output_tokens = 3000  # Perkiraan konservatif
+            estimated_output_tokens = 3000  # Conservative estimate
             
-            logger.info(f"Prompt memiliki {input_tokens} token, estimasi output {estimated_output_tokens} token")
+            logger.info(f"Prompt contains {input_tokens} tokens, estimated output {estimated_output_tokens} tokens")
             
-            # Rate limiting jika diaktifkan
+            # Rate limiting if enabled
             if self.rate_limiter:
                 self.rate_limiter.wait_for_capacity(input_tokens, estimated_output_tokens)
             
-            # Kirim request ke OpenRouter untuk Claude API
+            # Send request to OpenRouter for Claude API
             response = self.client.chat.completions.create(
                 extra_headers={
                     "HTTP-Referer": self.site_url,
@@ -375,18 +378,18 @@ class TestGenerator:
                 max_tokens=4000,
             )
             
-            # Estimasi penggunaan token output aktual
-            actual_output_tokens = len(response.choices[0].message.content) // 4  # Perkiraan kasar
+            # Estimate actual output token usage
+            actual_output_tokens = len(response.choices[0].message.content) // 4  # Rough estimate
             
             if self.rate_limiter:
                 self.rate_limiter.record_actual_usage(actual_output_tokens)
             
-            logger.info(f"Claude menggunakan perkiraan {actual_output_tokens} token output")
+            logger.info(f"Claude used approximately {actual_output_tokens} output tokens")
             
-            # Ekstrak kode dari response
+            # Extract code from response
             test_code = response.choices[0].message.content
             
-            # Ekstrak hanya kode Python dari respons jika dibungkus dalam blok kode
+            # Extract only Python code from response if wrapped in code blocks
             if "```python" in test_code and "```" in test_code:
                 test_code = test_code.split("```python")[1].split("```")[0].strip()
             elif "```" in test_code:
@@ -395,8 +398,8 @@ class TestGenerator:
             return test_code
             
         except Exception as e:
-            logger.error(f"Error saat generate test: {e}")
-            # Jika ada rate limiter, catat penggunaan token minimal
+            logger.error(f"Error generating test: {e}")
+            # If rate limiter exists, record minimal token usage
             if self.rate_limiter:
                 self.rate_limiter.record_actual_usage(1)
             raise
