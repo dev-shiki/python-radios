@@ -789,39 +789,88 @@ class TestGenerator:
         # Get classes and functions
         classes, functions = CodeAnalyzer.extract_classes_and_methods(module_code)
         
+        # Analyze constructor parameters
+        constructor_params = {}
+        try:
+            # Parse code into AST
+            tree = ast.parse(module_code)
+            
+            # Find all classes
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef):
+                    # Look for __init__ method
+                    for item in node.body:
+                        if isinstance(item, ast.FunctionDef) and item.name == '__init__':
+                            # Extract parameters (excluding self)
+                            params = []
+                            defaults_count = len(item.args.defaults)
+                            args_no_default = len(item.args.args) - defaults_count - 1  # -1 for self
+                            
+                            # Add required params (those without defaults)
+                            for i, arg in enumerate(item.args.args[1:]):  # Skip self
+                                if i < args_no_default:
+                                    params.append(arg.arg)
+                            
+                            if params:
+                                constructor_params[node.name] = params
+        except Exception as e:
+            logger.warning(f"Failed to extract constructor parameters: {e}")
+        
         # Create basic test scaffold
         test_code = f"""# AUTO-GENERATED TEST SCAFFOLD
-import pytest
-from unittest.mock import patch, MagicMock{', AsyncMock' if has_async else ''}
-from {import_path} import *
+    import pytest
+    from unittest.mock import patch, MagicMock{', AsyncMock' if has_async else ''}
+    from {import_path} import *
 
-"""
+    """
         
         # If asyncio is used, add the needed marker
         if has_async:
             test_code += """
-# Configure pytest for asyncio tests
-pytestmark = pytest.mark.asyncio
-"""
+    # Configure pytest for asyncio tests
+    pytestmark = pytest.mark.asyncio
+    """
         
         # Add tests for each class
         for cls in classes:
             cls_name = cls['name']
+            
+            # Generate constructor args based on analyzed parameters
+            constructor_args = []
+            if cls_name in constructor_params:
+                for param in constructor_params[cls_name]:
+                    # Add appropriate default values based on parameter name
+                    if 'user_agent' in param.lower() or 'useragent' in param.lower():
+                        constructor_args.append(f'{param}="test-agent"')
+                    elif 'timeout' in param.lower():
+                        constructor_args.append(f'{param}=5.0')
+                    elif 'key' in param.lower() or 'token' in param.lower():
+                        constructor_args.append(f'{param}="test-key"')
+                    elif 'url' in param.lower() or 'host' in param.lower():
+                        constructor_args.append(f'{param}="http://test-server.com"')
+                    elif 'session' in param.lower():
+                        constructor_args.append(f'{param}=None')
+                    else:
+                        # Generic default for other parameters
+                        constructor_args.append(f'{param}="test-value"')
+            
+            constructor_args_str = ", ".join(constructor_args)
+            
             test_code += f"""
-class Test{cls_name}:
-    @pytest.fixture
-    def {cls_name.lower()}_instance(self):
-        # TODO: Customize fixture with appropriate initialization
-        return {cls_name}()
-    
-"""
+    class Test{cls_name}:
+        @pytest.fixture
+        def {cls_name.lower()}_instance(self):
+            # Fixture with all required constructor parameters
+            return {cls_name}({constructor_args_str})
+        
+    """
             # Add test for initialization 
             test_code += f"""    {'@pytest.mark.asyncio' if has_async else ''}
-    {'async ' if has_async else ''}def test_{cls_name.lower()}_initialization(self, {cls_name.lower()}_instance):
-        # Test basic initialization
-        assert {cls_name.lower()}_instance is not None
-    
-"""
+        {'async ' if has_async else ''}def test_{cls_name.lower()}_initialization(self, {cls_name.lower()}_instance):
+            # Test basic initialization
+            assert {cls_name.lower()}_instance is not None
+        
+    """
 
             # Add tests for methods
             for method in cls['methods']:
@@ -829,102 +878,51 @@ class Test{cls_name}:
                     continue  # Skip private methods
                 
                 test_code += f"""    {'@pytest.mark.asyncio' if has_async or method['async'] else ''}
-    {'async ' if has_async or method['async'] else ''}def test_{cls_name.lower()}_{method['name']}(self, {cls_name.lower()}_instance):
-        # TODO: Set up appropriate test parameters and mocks
-        {'mock_result = AsyncMock()' if method['async'] else 'mock_result = MagicMock()'}
-        # TODO: Adjust expected parameters and return values
-        with patch('some.module.path', mock_result):
-            {'result = await ' + cls_name.lower() + '_instance.' + method['name'] + '()' if method['async'] else 'result = ' + cls_name.lower() + '_instance.' + method['name'] + '()'}
-            assert result is not None  # Replace with appropriate assertions
-    
-"""
+        {'async ' if has_async or method['async'] else ''}def test_{cls_name.lower()}_{method['name']}(self, {cls_name.lower()}_instance):
+            # Set up appropriate test parameters and mocks
+            {'mock_result = AsyncMock()' if method['async'] else 'mock_result = MagicMock()'}
+            # Adjust expected parameters and return values
+            with patch('some.module.path', mock_result):
+                {'result = await ' + cls_name.lower() + '_instance.' + method['name'] + '()' if method['async'] else 'result = ' + cls_name.lower() + '_instance.' + method['name'] + '()'}
+                assert result is not None  # Replace with appropriate assertions
+        
+    """
         
         # Add tests for standalone functions
         for func in functions:
             if func['name'].startswith('_'):
                 continue  # Skip private functions
-                
+                    
             test_code += f"""
-{'@pytest.mark.asyncio' if has_async or func['async'] else ''}
-{'async ' if has_async or func['async'] else ''}def test_{func['name']}():
-    # TODO: Setup appropriate test parameters and mocks
-    {'mock_result = AsyncMock()' if func['async'] else 'mock_result = MagicMock()'}
-    # TODO: Adjust expected parameters and return values
-    with patch('some.module.path', mock_result):
-        {'result = await ' + func['name'] + '()' if func['async'] else 'result = ' + func['name'] + '()'}
-        assert result is not None  # Replace with appropriate assertions
-"""
+    {'@pytest.mark.asyncio' if has_async or func['async'] else ''}
+    {'async ' if has_async or func['async'] else ''}def test_{func['name']}():
+        # Setup appropriate test parameters and mocks
+        {'mock_result = AsyncMock()' if func['async'] else 'mock_result = MagicMock()'}
+        # Adjust expected parameters and return values
+        with patch('some.module.path', mock_result):
+            {'result = await ' + func['name'] + '()' if func['async'] else 'result = ' + func['name'] + '()'}
+            assert result is not None  # Replace with appropriate assertions
+    """
         
-        # Handle special model needs
-        model_fields_found = []
-        for root, _, files in os.walk('tests'):
-            for file in files:
-                if file.endswith('.log') or file.endswith('.txt'):
-                    try:
-                        with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
-                            content = f.read()
-                            missing_field_pattern = re.compile(r'MissingField.*?Field\s+"([^"]+)"')
-                            for match in missing_field_pattern.finditer(content):
-                                field = match.group(1)
-                                if field not in model_fields_found:
-                                    model_fields_found.append(field)
-                    except:
-                        pass
-        
-        if model_fields_found:
-            test_code += """
-# IMPORTANT: Include these required fields in all mock data
-# Example mock data with required fields:
-mock_data_example = {
-"""
-            for field in model_fields_found:
-                test_code += f'    "{field}": "value",\n'
-            test_code += "}\n"
+        # Add guidance about model fields
+        test_code += """
+    # IMPORTANT: When creating mock data for model classes, always include ALL required fields
+    # Common fields that might be missed: change_uuid, click_count, code, supported_version
+
+    # Example of complete mock data pattern:
+    mock_data_example = {
+        # Include ALL required fields with appropriate test values
+        "id": "test-id",
+        "uuid": "test-uuid", 
+        "name": "Test Name",
+        "count": 0,                # Numeric fields typically default to 0
+        "is_active": True,         # Boolean fields with sensible defaults
+        "timestamp": "2023-01-01", # Date fields with reasonable test values
+        # Add any other fields that might be required by the model
+    }
+    """
         
         return test_code
-    
-    def write_test_file(self, module_path: str, test_code: str) -> str:
-        """
-        Write test code to an appropriate file based on module path
-        """
-        try:
-            # Determine output file structure
-            module_rel_path = module_path
-            
-            # If module_path starts with 'src/', remove it
-            if module_rel_path.startswith('src/'):
-                module_rel_path = module_rel_path[4:]
-            
-            # Get module name and directory
-            module_dir = os.path.dirname(module_rel_path)
-            module_name = os.path.basename(module_path)
-            if module_name.endswith('.py'):
-                module_name = module_name[:-3]
-            
-            # Create test directory
-            test_dir = os.path.join('tests', module_dir)
-            os.makedirs(test_dir, exist_ok=True)
-            
-            # Determine test file name
-            test_file = os.path.join(test_dir, f'test_{module_name}.py')
-            
-            # If file already exists, create a new version
-            if os.path.exists(test_file):
-                version = 1
-                while os.path.exists(f"{test_dir}/test_{module_name}_v{version}.py"):
-                    version += 1
-                test_file = f"{test_dir}/test_{module_name}_v{version}.py"
-            
-            # Write test code to file
-            with open(test_file, 'w', encoding='utf-8') as f:
-                f.write(test_code)
-            
-            logger.info(f"Test file saved to: {test_file}")
-            return test_file
-            
-        except Exception as e:
-            logger.error(f"Error writing test file: {e}")
-            raise
 
 
 def main():
