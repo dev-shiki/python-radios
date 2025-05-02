@@ -485,7 +485,7 @@ class TestGenerator:
     def __init__(
         self, 
         api_key: str, 
-        model: str = "anthropic/claude-3.7-sonnet", 
+        model: str = "google/gemini-2.5-flash-preview", 
         site_url: str = "https://test-generator-app.com", 
         site_name: str = "Test Generator",
         rate_limiter: Optional[ApiRateLimiter] = None,
