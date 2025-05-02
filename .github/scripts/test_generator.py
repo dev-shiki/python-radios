@@ -923,6 +923,49 @@ class TestGenerator:
     """
         
         return test_code
+    
+    def write_test_file(self, module_path: str, test_code: str) -> str:
+        """
+        Write test code to an appropriate file based on module path
+        """
+        try:
+            # Determine output file structure
+            module_rel_path = module_path
+            
+            # If module_path starts with 'src/', remove it
+            if module_rel_path.startswith('src/'):
+                module_rel_path = module_rel_path[4:]
+            
+            # Get module name and directory
+            module_dir = os.path.dirname(module_rel_path)
+            module_name = os.path.basename(module_path)
+            if module_name.endswith('.py'):
+                module_name = module_name[:-3]
+            
+            # Create test directory
+            test_dir = os.path.join('tests', module_dir)
+            os.makedirs(test_dir, exist_ok=True)
+            
+            # Determine test file name
+            test_file = os.path.join(test_dir, f'test_{module_name}.py')
+            
+            # If file already exists, create a new version
+            if os.path.exists(test_file):
+                version = 1
+                while os.path.exists(f"{test_dir}/test_{module_name}_v{version}.py"):
+                    version += 1
+                test_file = f"{test_dir}/test_{module_name}_v{version}.py"
+            
+            # Write test code to file
+            with open(test_file, 'w', encoding='utf-8') as f:
+                f.write(test_code)
+            
+            logger.info(f"Test file saved to: {test_file}")
+            return test_file
+            
+        except Exception as e:
+            logger.error(f"Error writing test file: {e}")
+            raise
 
 
 def main():
