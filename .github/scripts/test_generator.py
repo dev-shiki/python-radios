@@ -303,13 +303,30 @@ class TestGenerator:
     
     def generate_test(self, module_path: str, coverage_data: dict, test_framework: str = "pytest") -> str:
         """
-        Generate test cases using Claude API via OpenRouter
+        Generate test cases using Claude API via OpenRouter with improved validation
         """
         try:
             # Read module code
             with open(module_path, 'r', encoding='utf-8') as f:
                 module_code = f.read()
             
+            # Get module name without extension for imports
+            module_name = os.path.basename(module_path)
+            if module_name.endswith('.py'):
+                module_name = module_name[:-3]
+            
+            # Get module directory for import path construction
+            module_dir = os.path.dirname(module_path)
+            if module_dir.startswith('src/'):
+                module_dir = module_dir[4:]
+            
+            # Construct import path
+            import_path = module_dir.replace('/', '.')
+            if import_path:
+                full_import_path = f"{import_path}.{module_name}"
+            else:
+                full_import_path = module_name
+                
             # Prepare coverage information for prompt
             coverage_pct = coverage_data.get("coverage_pct", 0)
             low_coverage_functions = coverage_data.get("low_coverage_functions", [])
@@ -323,37 +340,50 @@ class TestGenerator:
             else:
                 low_coverage_info = "All functions have partial coverage that needs improvement."
             
-            # Craft the optimized prompt for Claude
-            module_name = os.path.basename(module_path)
+            # Determine module type based on code analysis
+            is_class_based = "class " in module_code
+            has_async = "async " in module_code
+            
+            # Craft system prompt to set expectations
+            system_prompt = (
+                "You are a Python testing expert specializing in writing high-quality test code. "
+                "You ONLY respond with valid, executable Python code without any explanations, commentary, or markdown. "
+                "Never start with explanations or questions - just provide working test code that can be directly saved to a file."
+            )
+            
+            # Craft the optimized user prompt for Claude
             prompt_text = f"""
-            # TEST GENERATION TASK
+    # TEST GENERATION ASSIGNMENT
 
-            Create comprehensive {test_framework} test cases for the Python module below, which currently has {coverage_pct:.1f}% test coverage.
+    Write complete, production-ready {test_framework} test code for this Python module that currently has {coverage_pct:.1f}% test coverage.
 
-            ## MODULE DETAILS
-            - Filename: {module_name}
-            - Path: {module_path}
+    ## MODULE DETAILS
+    - Filename: {module_name}.py
+    - Import path: {full_import_path}
+    - Current coverage: {coverage_pct:.1f}%
 
-            ## SOURCE CODE
-            ```python
-            {module_code}
-            ```
+    ## MODULE CODE
+    ```python
+    {module_code}
+    ```
 
-            ## COVERAGE ANALYSIS
-            {low_coverage_info}
+    ## COVERAGE ANALYSIS
+    {low_coverage_info}
 
-            ## REQUIREMENTS
-            1. Focus primarily on the functions with low or no coverage
-            2. Write tests that achieve maximum line coverage
-            3. Include tests for edge cases, boundary conditions, and error handling
-            4. Follow {test_framework} best practices
-            5. Use appropriate mocking where necessary for external dependencies
-            6. Ensure assertions verify both expected function outputs and side effects
-            7. Organize tests logically with clear and descriptive names
+    ## STRICT REQUIREMENTS
+    1. Write ONLY runnable Python test code, with no explanations or questions
+    2. Include proper imports at the top (pytest, unittest, mock libraries as needed)
+    3. Import the module under test using: `from {full_import_path} import *`
+    4. Focus primarily on functions with low/no coverage
+    5. Use appropriate fixtures, mocks, and patches where needed
+    6. Cover edge cases, boundary conditions, and error handling
+    7. Follow standard {test_framework} naming and organization conventions
+    8. Ensure all tests are independent and do not rely on external resources
+    9. Include descriptive docstrings for test functions
 
-            ## OUTPUT FORMAT
-            Return ONLY the complete test code without explanations or markdown formatting. The output should be valid Python code that can be saved directly to a file and executed with {test_framework}.
-            """
+    IMPORTANT: Your response MUST be valid Python code that can be executed with pytest. 
+    DO NOT include any explanatory text, markdown formatting, or conversational elements.
+    """
             
             # Count tokens and estimate output
             input_tokens = TokenCounter.count_tokens_with_openai(self.client, prompt_text, self.model)
@@ -373,6 +403,7 @@ class TestGenerator:
                 },
                 model=self.model,
                 messages=[
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt_text}
                 ],
                 max_tokens=4000,
@@ -395,6 +426,49 @@ class TestGenerator:
             elif "```" in test_code:
                 test_code = test_code.split("```")[1].split("```")[0].strip()
             
+            # POST-PROCESSING: Ensure we have valid Python code
+            # Remove any conversational elements or non-Python content
+            if not test_code.startswith("import ") and not test_code.startswith("from ") and not test_code.startswith("#!/"):
+                lines = test_code.split('\n')
+                # Find first line that looks like valid Python code (import or class/function definition)
+                for i, line in enumerate(lines):
+                    if (line.startswith("import ") or line.startswith("from ") or 
+                        line.startswith("def ") or line.startswith("class ")):
+                        test_code = '\n'.join(lines[i:])
+                        break
+            
+            # Ensure we have proper imports
+            imports_to_include = []
+            
+            # Add core imports if not present
+            if test_framework == "pytest" and "import pytest" not in test_code:
+                imports_to_include.append("import pytest")
+            
+            if "unittest.mock" not in test_code and "mock" not in test_code:
+                imports_to_include.append("from unittest import mock")
+            
+            # Add import for the module under test if not present
+            module_import = f"from {full_import_path} import *"
+            if module_import not in test_code:
+                imports_to_include.append(module_import)
+            
+            # Add imports at the beginning if needed
+            if imports_to_include:
+                test_code = '\n'.join(imports_to_include) + '\n\n' + test_code
+            
+            # Validate that the result is proper Python syntax
+            try:
+                compile(test_code, "<string>", "exec")
+                logger.info("Successfully generated and validated test code")
+            except SyntaxError as e:
+                logger.warning(f"Generated code has syntax error: {e}")
+                # Attempt to fix common issues
+                if "would you like" in test_code.lower() or "i understand" in test_code.lower():
+                    # This looks like conversational text, not code
+                    logger.warning("Detected conversational text in output, attempting fallback generation")
+                    # Create a basic test scaffold
+                    test_code = self._generate_fallback_test(module_path, full_import_path)
+            
             return test_code
             
         except Exception as e:
@@ -403,6 +477,57 @@ class TestGenerator:
             if self.rate_limiter:
                 self.rate_limiter.record_actual_usage(1)
             raise
+
+    def _generate_fallback_test(self, module_path: str, import_path: str) -> str:
+        """
+        Generate a basic test scaffold as fallback when API generation fails
+        """
+        module_name = os.path.basename(module_path)
+        if module_name.endswith('.py'):
+            module_name = module_name[:-3]
+        
+        # Read module to identify classes and functions
+        with open(module_path, 'r') as f:
+            content = f.read()
+        
+        # Simple regex to find classes and functions
+        classes = re.findall(r'class\s+(\w+)', content)
+        functions = re.findall(r'def\s+(\w+)', content)
+        
+        # Remove private methods
+        functions = [f for f in functions if not f.startswith('_')]
+        
+        # Create basic test scaffold
+        test_code = f"""
+    import pytest
+    from unittest import mock
+    from {import_path} import *
+
+    """
+        
+        # Add test class for each class found
+        for cls in classes:
+            test_code += f"""
+    class Test{cls}:
+        @pytest.fixture
+        def {cls.lower()}_instance(self):
+            return {cls}()
+            
+        def test_{cls.lower()}_initialization(self, {cls.lower()}_instance):
+            assert {cls.lower()}_instance is not None
+    """
+        
+        # Add test for standalone functions
+        standalone_funcs = [f for f in functions if not any(f in content for c in classes)]
+        for func in standalone_funcs:
+            test_code += f"""
+    def test_{func}():
+        # TODO: Replace with appropriate test parameters and assertions
+        result = {func}()
+        assert result is not None
+    """
+        
+        return test_code
     
     def write_test_file(self, module_path: str, test_code: str) -> str:
         """
