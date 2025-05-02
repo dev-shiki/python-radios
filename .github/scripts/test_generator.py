@@ -818,18 +818,18 @@ class TestGenerator:
         
         # Create basic test scaffold
         test_code = f"""# AUTO-GENERATED TEST SCAFFOLD
-    import pytest
-    from unittest.mock import patch, MagicMock{', AsyncMock' if has_async else ''}
-    from {import_path} import *
+import pytest
+from unittest.mock import patch, MagicMock{', AsyncMock' if has_async else ''}
+from {import_path} import *
 
-    """
+"""
         
         # If asyncio is used, add the needed marker
         if has_async:
             test_code += """
-    # Configure pytest for asyncio tests
-    pytestmark = pytest.mark.asyncio
-    """
+# Configure pytest for asyncio tests
+pytestmark = pytest.mark.asyncio
+"""
         
         # Add tests for each class
         for cls in classes:
@@ -857,20 +857,20 @@ class TestGenerator:
             constructor_args_str = ", ".join(constructor_args)
             
             test_code += f"""
-    class Test{cls_name}:
-        @pytest.fixture
-        def {cls_name.lower()}_instance(self):
-            # Fixture with all required constructor parameters
-            return {cls_name}({constructor_args_str})
-        
-    """
+class Test{cls_name}:
+    @pytest.fixture
+    def {cls_name.lower()}_instance(self):
+        # Fixture with all required constructor parameters
+        return {cls_name}({constructor_args_str})
+    
+"""
             # Add test for initialization 
             test_code += f"""    {'@pytest.mark.asyncio' if has_async else ''}
-        {'async ' if has_async else ''}def test_{cls_name.lower()}_initialization(self, {cls_name.lower()}_instance):
-            # Test basic initialization
-            assert {cls_name.lower()}_instance is not None
+    {'async ' if has_async else ''}def test_{cls_name.lower()}_initialization(self, {cls_name.lower()}_instance):
+        # Test basic initialization
+        assert {cls_name.lower()}_instance is not None
         
-    """
+"""
 
             # Add tests for methods
             for method in cls['methods']:
@@ -878,15 +878,15 @@ class TestGenerator:
                     continue  # Skip private methods
                 
                 test_code += f"""    {'@pytest.mark.asyncio' if has_async or method['async'] else ''}
-        {'async ' if has_async or method['async'] else ''}def test_{cls_name.lower()}_{method['name']}(self, {cls_name.lower()}_instance):
-            # Set up appropriate test parameters and mocks
-            {'mock_result = AsyncMock()' if method['async'] else 'mock_result = MagicMock()'}
-            # Adjust expected parameters and return values
-            with patch('some.module.path', mock_result):
-                {'result = await ' + cls_name.lower() + '_instance.' + method['name'] + '()' if method['async'] else 'result = ' + cls_name.lower() + '_instance.' + method['name'] + '()'}
-                assert result is not None  # Replace with appropriate assertions
+    {'async ' if has_async or method['async'] else ''}def test_{cls_name.lower()}_{method['name']}(self, {cls_name.lower()}_instance):
+        # Set up appropriate test parameters and mocks
+        {'mock_result = AsyncMock()' if method['async'] else 'mock_result = MagicMock()'}
+        # Adjust expected parameters and return values
+        with patch('some.module.path', mock_result):
+            {'result = await ' + cls_name.lower() + '_instance.' + method['name'] + '()' if method['async'] else 'result = ' + cls_name.lower() + '_instance.' + method['name'] + '()'}
+            assert result is not None  # Replace with appropriate assertions
         
-    """
+"""
         
         # Add tests for standalone functions
         for func in functions:
@@ -894,33 +894,33 @@ class TestGenerator:
                 continue  # Skip private functions
                     
             test_code += f"""
-    {'@pytest.mark.asyncio' if has_async or func['async'] else ''}
-    {'async ' if has_async or func['async'] else ''}def test_{func['name']}():
-        # Setup appropriate test parameters and mocks
-        {'mock_result = AsyncMock()' if func['async'] else 'mock_result = MagicMock()'}
-        # Adjust expected parameters and return values
-        with patch('some.module.path', mock_result):
-            {'result = await ' + func['name'] + '()' if func['async'] else 'result = ' + func['name'] + '()'}
-            assert result is not None  # Replace with appropriate assertions
-    """
+{'@pytest.mark.asyncio' if has_async or func['async'] else ''}
+{'async ' if has_async or func['async'] else ''}def test_{func['name']}():
+    # Setup appropriate test parameters and mocks
+    {'mock_result = AsyncMock()' if func['async'] else 'mock_result = MagicMock()'}
+    # Adjust expected parameters and return values
+    with patch('some.module.path', mock_result):
+        {'result = await ' + func['name'] + '()' if func['async'] else 'result = ' + func['name'] + '()'}
+        assert result is not None  # Replace with appropriate assertions
+"""
         
         # Add guidance about model fields
         test_code += """
-    # IMPORTANT: When creating mock data for model classes, always include ALL required fields
-    # Common fields that might be missed: change_uuid, click_count, code, supported_version
+# IMPORTANT: When creating mock data for model classes, always include ALL required fields
+# Common fields that might be missed: change_uuid, click_count, code, supported_version
 
-    # Example of complete mock data pattern:
-    mock_data_example = {
-        # Include ALL required fields with appropriate test values
-        "id": "test-id",
-        "uuid": "test-uuid", 
-        "name": "Test Name",
-        "count": 0,                # Numeric fields typically default to 0
-        "is_active": True,         # Boolean fields with sensible defaults
-        "timestamp": "2023-01-01", # Date fields with reasonable test values
-        # Add any other fields that might be required by the model
-    }
-    """
+# Example of complete mock data pattern:
+mock_data_example = {
+    # Include ALL required fields with appropriate test values
+    "id": "test-id",
+    "uuid": "test-uuid", 
+    "name": "Test Name",
+    "count": 0,                # Numeric fields typically default to 0
+    "is_active": True,         # Boolean fields with sensible defaults
+    "timestamp": "2023-01-01", # Date fields with reasonable test values
+    # Add any other fields that might be required by the model
+}
+"""
         
         return test_code
     
