@@ -160,22 +160,24 @@ jobs:
         run: poetry install --no-interaction
       
       - name: 🏗 Install AI test generation dependencies
-        run: poetry add anthropic pytest-coverage
+        run: poetry add openai pytest-coverage tiktoken
       
       - name: 📊 Generate coverage report for existing tests
         run: poetry run pytest --cov=${{ matrix.module }} --cov-report=xml
       
       - name: 🤖 Generate tests with Claude
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           MODULE_PATH: ${{ matrix.module }}
           COVERAGE_THRESHOLD: ${{ github.event.inputs.coverage_threshold }}
         run: |
-          # Run your custom test generator script with appropriate arguments
+          # Run test generator script dengan OpenRouter
           poetry run python .github/scripts/test_generator.py \
             --module $MODULE_PATH \
             --coverage-threshold $COVERAGE_THRESHOLD \
-            --api-key $ANTHROPIC_API_KEY \
+            --api-key $OPENROUTER_API_KEY \
+            --site-url "https://github.com/${{ github.repository }}" \
+            --site-name "${{ github.repository }}" \
             --rate-limit-rpm 5 \
             --rate-limit-input-tpm 25000 \
             --rate-limit-output-tpm 5000

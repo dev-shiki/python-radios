@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Generator Test Otomatis dengan Claude API
+Generator Test Otomatis dengan Claude API via OpenRouter
 
 Utilitas untuk menghasilkan test case untuk modul Python dengan coverage rendah
-menggunakan Claude API dengan pengelolaan rate limit.
+menggunakan Claude API melalui OpenRouter dengan pengelolaan rate limit.
 
 Penggunaan:
   python test_generator.py --module path/to/module.py --coverage-threshold 80 \
-    --api-key YOUR_API_KEY --rate-limit-rpm 5 --rate-limit-input-tpm 25000 \
+    --api-key YOUR_OPENROUTER_API_KEY --rate-limit-rpm 5 --rate-limit-input-tpm 25000 \
     --rate-limit-output-tpm 5000
 """
 
@@ -22,7 +22,8 @@ import threading
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-import anthropic
+import openai
+from openai import OpenAI
 
 # Konfigurasi logging
 logging.basicConfig(
@@ -33,14 +34,14 @@ logger = logging.getLogger("claude-test-generator")
 
 @dataclass
 class RateLimitConfig:
-    """Konfigurasi Rate Limit untuk Claude API"""
+    """Konfigurasi Rate Limit untuk API"""
     requests_per_minute: int
     input_tokens_per_minute: int 
     output_tokens_per_minute: int
 
-class ClaudeRateLimiter:
+class ApiRateLimiter:
     """
-    Rate limiter untuk API Claude yang mempertimbangkan:
+    Rate limiter untuk API yang mempertimbangkan:
     - Jumlah permintaan per menit
     - Batas token input per menit
     - Batas token output per menit
@@ -128,15 +129,16 @@ class TokenCounter:
         return max(1, len(text) // 4)
     
     @staticmethod
-    def count_tokens_with_anthropic(client: anthropic.Anthropic, text: str) -> int:
+    def count_tokens_with_openai(client: OpenAI, text: str, model: str) -> int:
         """
-        Menghitung token menggunakan API Anthropic jika tersedia.
+        Menghitung token menggunakan tiktoken atau perkiraan.
         """
         try:
-            token_count = client.count_tokens(text)
-            return token_count.tokens
+            import tiktoken
+            encoding = tiktoken.encoding_for_model(model.split('/')[-1])
+            return len(encoding.encode(text))
         except Exception as e:
-            logger.warning(f"Gagal menghitung token dengan API: {e}")
+            logger.warning(f"Gagal menghitung token dengan tiktoken: {e}")
             # Fallback ke estimasi kasar
             return TokenCounter.estimate_tokens(text)
 
@@ -284,17 +286,24 @@ class CoverageAnalyzer:
 
 class TestGenerator:
     """
-    Generator test yang menggunakan Claude API untuk membuat test case
+    Generator test yang menggunakan Claude API melalui OpenRouter untuk membuat test case
     """
     
-    def __init__(self, api_key: str, model: str = "claude-3-5-haiku-20240307", rate_limiter: ClaudeRateLimiter = None):
-        self.client = anthropic.Anthropic(api_key=api_key)
+    def __init__(self, api_key: str, model: str = "anthropic/claude-3.5-haiku-20241022", 
+                 site_url: str = "https://test-generator-app.com", site_name: str = "Test Generator",
+                 rate_limiter: ApiRateLimiter = None):
+        self.client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key
+        )
         self.model = model
+        self.site_url = site_url
+        self.site_name = site_name
         self.rate_limiter = rate_limiter
     
     def generate_test(self, module_path: str, coverage_data: dict, test_framework: str = "pytest") -> str:
         """
-        Menghasilkan test case menggunakan Claude API
+        Menghasilkan test case menggunakan Claude API via OpenRouter
         """
         try:
             # Baca kode modul
@@ -316,7 +325,7 @@ class TestGenerator:
             
             # Buat prompt untuk Claude
             module_name = os.path.basename(module_path)
-            prompt = f"""
+            prompt_text = f"""
             Buatkan test case untuk modul Python berikut yang memiliki coverage rendah ({coverage_pct:.1f}%).
             
             Nama file: {module_name}
@@ -344,7 +353,7 @@ class TestGenerator:
             """
             
             # Hitung token dan perkirakan output
-            input_tokens = TokenCounter.count_tokens_with_anthropic(self.client, prompt)
+            input_tokens = TokenCounter.count_tokens_with_openai(self.client, prompt_text, self.model)
             estimated_output_tokens = 3000  # Perkiraan konservatif
             
             logger.info(f"Prompt memiliki {input_tokens} token, estimasi output {estimated_output_tokens} token")
@@ -353,24 +362,29 @@ class TestGenerator:
             if self.rate_limiter:
                 self.rate_limiter.wait_for_capacity(input_tokens, estimated_output_tokens)
             
-            # Kirim request ke Claude API
-            response = self.client.messages.create(
+            # Kirim request ke OpenRouter untuk Claude API
+            response = self.client.chat.completions.create(
+                extra_headers={
+                    "HTTP-Referer": self.site_url,
+                    "X-Title": self.site_name,
+                },
                 model=self.model,
-                max_tokens=4000,
                 messages=[
-                    {"role": "user", "content": prompt}
-                ]
+                    {"role": "user", "content": prompt_text}
+                ],
+                max_tokens=4000,
             )
             
-            # Catat penggunaan token output aktual
-            actual_output_tokens = response.usage.output_tokens
+            # Estimasi penggunaan token output aktual
+            actual_output_tokens = len(response.choices[0].message.content) // 4  # Perkiraan kasar
+            
             if self.rate_limiter:
                 self.rate_limiter.record_actual_usage(actual_output_tokens)
             
-            logger.info(f"Claude menggunakan {actual_output_tokens} token output")
+            logger.info(f"Claude menggunakan perkiraan {actual_output_tokens} token output")
             
             # Ekstrak kode dari response
-            test_code = response.content[0].text
+            test_code = response.choices[0].message.content
             
             # Ekstrak hanya kode Python dari respons jika dibungkus dalam blok kode
             if "```python" in test_code and "```" in test_code:
@@ -432,7 +446,7 @@ class TestGenerator:
 
 def main():
     """Fungsi utama untuk menjalankan test generator"""
-    parser = argparse.ArgumentParser(description='Generate test cases untuk modul Python dengan Claude API')
+    parser = argparse.ArgumentParser(description='Generate test cases untuk modul Python dengan Claude API via OpenRouter')
     
     parser.add_argument('--module', required=True, help='Path ke modul yang akan dibuatkan test')
     parser.add_argument('--coverage-threshold', type=float, default=80.0, 
@@ -441,8 +455,12 @@ def main():
     parser.add_argument('--test-framework', default='pytest', choices=['pytest', 'unittest'], 
                         help='Framework test yang digunakan')
     
-    parser.add_argument('--api-key', help='Anthropic API key (default: dari env ANTHROPIC_API_KEY)')
-    parser.add_argument('--model', default='claude-3-5-haiku-20240307', help='Model Claude yang digunakan')
+    parser.add_argument('--api-key', help='OpenRouter API key (default: dari env OPENROUTER_API_KEY)')
+    parser.add_argument('--model', default='anthropic/claude-3.5-haiku-20241022', help='Model yang digunakan')
+    parser.add_argument('--site-url', default='https://test-generator-app.com', 
+                        help='URL situs untuk header HTTP-Referer (OpenRouter)')
+    parser.add_argument('--site-name', default='Test Generator',
+                        help='Nama situs untuk header X-Title (OpenRouter)')
     
     parser.add_argument('--rate-limit-rpm', type=int, default=5, help='Request per menit')
     parser.add_argument('--rate-limit-input-tpm', type=int, default=25000, help='Token input per menit')
@@ -462,9 +480,9 @@ def main():
         sys.exit(1)
     
     # Dapatkan API key
-    api_key = args.api_key or os.environ.get('ANTHROPIC_API_KEY')
+    api_key = args.api_key or os.environ.get('OPENROUTER_API_KEY')
     if not api_key:
-        logger.error("Anthropic API key tidak ditemukan. Gunakan --api-key atau set env ANTHROPIC_API_KEY")
+        logger.error("OpenRouter API key tidak ditemukan. Gunakan --api-key atau set env OPENROUTER_API_KEY")
         sys.exit(1)
     
     # Buat rate limiter
@@ -473,7 +491,7 @@ def main():
         input_tokens_per_minute=args.rate_limit_input_tpm,
         output_tokens_per_minute=args.rate_limit_output_tpm
     )
-    rate_limiter = ClaudeRateLimiter(rate_limit_config)
+    rate_limiter = ApiRateLimiter(rate_limit_config)
     
     # Analisis coverage
     logger.info(f"Menganalisis coverage untuk modul: {args.module}")
@@ -487,8 +505,14 @@ def main():
         sys.exit(0)
     
     # Generate test
-    logger.info(f"Membuat test dengan Claude {args.model}")
-    generator = TestGenerator(api_key, args.model, rate_limiter)
+    logger.info(f"Membuat test dengan {args.model} via OpenRouter")
+    generator = TestGenerator(
+        api_key, 
+        args.model, 
+        args.site_url,
+        args.site_name,
+        rate_limiter
+    )
     
     try:
         test_code = generator.generate_test(args.module, coverage_data, args.test_framework)
