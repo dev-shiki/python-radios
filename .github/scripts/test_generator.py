@@ -434,10 +434,12 @@ class TestPromptGenerator:
         if 'json' in module_code:
             model_requirements.append("- For JSON responses, ensure the mock data matches the expected model structure completely")
         
-        if 'mashumaro' in module_code:
-                model_requirements.append("- This code uses mashumaro for data serialization which requires ALL fields to be present in mock data")
-                model_requirements.append("- Pay special attention to error messages in test output which will reveal missing fields")
-            
+        if 'mashumaro' in module_code or 'from_dict' in module_code or 'from_json' in module_code:
+            model_requirements.append("- CRITICAL: When creating mock data, ALL required fields MUST be included in the model dictionaries")
+            model_requirements.append("- Missing fields will cause MissingField exceptions from data serialization libraries")
+            model_requirements.append("- Carefully inspect model class definitions to identify ALL required fields")
+            model_requirements.append("- Include ALL fields from the model class in mock data, not just those you think are needed")
+        
         model_requirements_text = "\n".join(model_requirements) if model_requirements else "No special model requirements detected."
         
         # Create the full prompt
@@ -470,13 +472,13 @@ Write clean, production-quality {test_framework} test code for this Python modul
 2. Include proper imports for ALL required packages and modules
 3. Import the module under test correctly: `from {import_path} import *`
 4. Focus on COMPLETE test coverage for functions with low coverage
-5. For mock responses, include ALL required fields in model dictionaries/JSON
-6. Never skip required fields in mock responses - check actual model structure , CRITICAL: Check for mashumaro.exceptions.MissingField errors in existing tests to identify required fields
+5. CRITICALLY IMPORTANT: For mock responses, include EVERY SINGLE field in the model classes to avoid MissingField errors
+6. NEVER omit any fields from mock data - include ALL fields even if they seem unimportant
 7. Use appropriate fixtures and test setup for the testing framework
 8. When asserting values, ensure case sensitivity and exact type matching
 9. Create descriptive test function names that indicate what is being tested
 10. Include proper error handling and edge case testing
-11. If working with model classes, scan the model definitions to identify ALL required fields 
+11. Use only dependencies that are guaranteed to be available (pytest, unittest)
 
 Your response MUST be valid Python code that can be directly saved and executed with {test_framework}.
 """
@@ -646,10 +648,19 @@ class TestGenerator:
             imports_to_include.append("import pytest")
         
         if requirements.get('needs_pytest_mock', False) and "pytest_mock" not in test_code:
-            imports_to_include.append("import pytest_mock")
-            # Add pytest-mock plugin if not present
-            if "pytest_plugins" not in test_code:
-                imports_to_include.append("pytest_plugins = ['pytest_mock']")
+            try:
+                import pytest_mock
+                imports_to_include.append("import pytest_mock")
+                # Add pytest-mock plugin if not present
+                if "pytest_plugins" not in test_code:
+                    imports_to_include.append("pytest_plugins = ['pytest_mock']")
+            except ImportError:
+                logger.warning("pytest-mock required but not available - replacing with standard unittest.mock")
+                # Replace pytest-mock with standard unittest.mock
+                test_code = test_code.replace("mocker.patch", "patch")
+                test_code = test_code.replace("mocker.Mock", "MagicMock")
+                if "from unittest.mock import patch" not in test_code and "patch(" in test_code:
+                    imports_to_include.append("from unittest.mock import patch, MagicMock")
         
         # Check for AsyncMock
         if requirements.get('needs_asyncmock', False) and "AsyncMock" in test_code and "from unittest.mock import AsyncMock" not in test_code:
@@ -831,14 +842,21 @@ class TestGenerator:
         test_code = f"""# AUTO-GENERATED TEST SCAFFOLD
 import pytest
 from unittest.mock import patch, MagicMock{', AsyncMock' if has_async else ''}
-import pytest_mock  # For mocker fixture
 from {import_path} import *
-
-# Register pytest-mock plugin
-pytest_plugins = ['pytest_mock']
 
 """
         
+        # Only add pytest-mock if it's installed
+        try:
+            import pytest_mock
+            test_code += """# Register pytest-mock plugin
+pytest_plugins = ['pytest_mock']
+
+"""
+        except ImportError:
+            # Don't add pytest-mock dependency
+            pass
+
         # If asyncio is used, add the needed marker
         if has_async:
             test_code += """
