@@ -1,34 +1,28 @@
+#!/usr/bin/env python3
 """
-Claude Test Generator
+Generator Test Otomatis dengan Claude API
 
-Sistem untuk menggunakan Claude 3.5 Haiku API untuk generate test case otomatis
-dengan mekanisme rate limiting berdasarkan batas:
-- 5 request per menit
-- 25,000 token input per menit
-- 5,000 token output per menit
+Utilitas untuk menghasilkan test case untuk modul Python dengan coverage rendah
+menggunakan Claude API dengan pengelolaan rate limit.
 
-Kode ini termasuk:
-1. Rate limiter untuk Claude API
-2. Test case generator
-3. Coverage analyzer
-4. GitHub Action workflow
+Penggunaan:
+  python test_generator.py --module path/to/module.py --coverage-threshold 80 \
+    --api-key YOUR_API_KEY --rate-limit-rpm 5 --rate-limit-input-tpm 25000 \
+    --rate-limit-output-tpm 5000
 """
 
 import os
+import sys
 import time
-import json
+import argparse
 import logging
-import anthropic
 import xml.etree.ElementTree as ET
-from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass
-from datetime import datetime, timedelta
-import threading
-import queue
 import re
-import glob
+import threading
 from collections import deque
-import math
+from dataclasses import dataclass
+from pathlib import Path
+import anthropic
 
 # Konfigurasi logging
 logging.basicConfig(
@@ -37,15 +31,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("claude-test-generator")
 
-# Konstanta untuk model
-CLAUDE_MODEL = "claude-3-5-haiku-20240307"
-
-# Konfigurasi rate limiting
 @dataclass
 class RateLimitConfig:
-    requests_per_minute: int = 5
-    input_tokens_per_minute: int = 25000
-    output_tokens_per_minute: int = 5000
+    """Konfigurasi Rate Limit untuk Claude API"""
+    requests_per_minute: int
+    input_tokens_per_minute: int 
+    output_tokens_per_minute: int
 
 class ClaudeRateLimiter:
     """
@@ -61,6 +52,7 @@ class ClaudeRateLimiter:
         self.input_token_usage = deque()
         self.output_token_usage = deque()
         self.lock = threading.RLock()
+        logger.info(f"Rate limiter initiated with config: {config}")
         
     def _cleanup_old_entries(self, queue_data, time_window=60):
         """Membersihkan entri yang lebih lama dari time_window detik"""
@@ -101,6 +93,10 @@ class ClaudeRateLimiter:
                     self.request_timestamps.append((current_time, 1))
                     self.input_token_usage.append((current_time, input_tokens))
                     self.output_token_usage.append((current_time, estimated_output_tokens))
+                    
+                    logger.info(f"Request allowed - Usage stats: Requests={current_requests+1}/{self.config.requests_per_minute}, " +
+                                f"Input tokens={(current_input_tokens + input_tokens)}/{self.config.input_tokens_per_minute}, " +
+                                f"Output tokens={(current_output_tokens + estimated_output_tokens)}/{self.config.output_tokens_per_minute}")
                     return
             
             # Jika tidak ada kapasitas yang cukup, tunggu sebentar
@@ -118,6 +114,7 @@ class ClaudeRateLimiter:
                 # Perbarui entri terakhir dengan nilai sebenarnya
                 timestamp, _ = self.output_token_usage.pop()
                 self.output_token_usage.append((timestamp, actual_output_tokens))
+                logger.info(f"Updated output token usage to {actual_output_tokens}")
 
 class TokenCounter:
     """Utilitas untuk menghitung token dalam teks"""
@@ -143,323 +140,363 @@ class TokenCounter:
             # Fallback ke estimasi kasar
             return TokenCounter.estimate_tokens(text)
 
-class ClaudeClient:
-    """Wrapper untuk berinteraksi dengan Claude API"""
+class CoverageAnalyzer:
+    """Menganalisis laporan coverage untuk mengidentifikasi area dengan coverage rendah"""
     
-    def __init__(self, api_key: str, rate_limiter: ClaudeRateLimiter):
-        self.client = anthropic.Anthropic(api_key=api_key)
-        self.rate_limiter = rate_limiter
-    
-    def generate_response(self, prompt: str, max_tokens: int = 4000) -> str:
+    @staticmethod
+    def parse_coverage_data(module_path: str, coverage_file: str = "coverage.xml") -> dict:
         """
-        Menghasilkan respons dari Claude API dengan mempertimbangkan rate limiting.
+        Mengekstrak data coverage untuk modul tertentu dari laporan coverage XML
         """
-        # Perkiraan token input dan output
-        input_tokens = TokenCounter.count_tokens_with_anthropic(self.client, prompt)
-        estimated_output_tokens = min(max_tokens, 2000)  # Perkiraan default 2000 atau max_tokens jika lebih kecil
-        
-        # Tunggu sampai kapasitas rate limit tersedia
-        self.rate_limiter.wait_for_capacity(input_tokens, estimated_output_tokens)
+        if not os.path.exists(coverage_file):
+            logger.error(f"File coverage tidak ditemukan: {coverage_file}")
+            return {}
         
         try:
-            # Kirim permintaan ke Claude API
+            tree = ET.parse(coverage_file)
+            root = tree.getroot()
+            
+            coverage_data = {
+                "line_rate": 0.0,
+                "coverage_pct": 0.0,
+                "uncovered_lines": [],
+                "covered_lines": [],
+                "low_coverage_functions": []
+            }
+            
+            # Temukan modul dalam laporan
+            for class_elem in root.findall('.//class'):
+                filename = class_elem.attrib.get('filename')
+                
+                if filename == module_path:
+                    # Dapatkan coverage rate
+                    line_rate = float(class_elem.attrib.get('line-rate', 0))
+                    coverage_data["line_rate"] = line_rate
+                    coverage_data["coverage_pct"] = line_rate * 100
+                    
+                    # Dapatkan line coverage detail
+                    for line in class_elem.findall('.//line'):
+                        line_num = int(line.attrib.get('number', 0))
+                        hits = int(line.attrib.get('hits', 0))
+                        
+                        if hits > 0:
+                            coverage_data["covered_lines"].append(line_num)
+                        else:
+                            coverage_data["uncovered_lines"].append(line_num)
+                    
+                    break
+            
+            # Identifikasi fungsi dengan coverage rendah
+            if os.path.exists(module_path):
+                coverage_data["low_coverage_functions"] = CoverageAnalyzer.identify_low_coverage_functions(
+                    module_path, coverage_data["covered_lines"], coverage_data["uncovered_lines"]
+                )
+            
+            return coverage_data
+            
+        except Exception as e:
+            logger.error(f"Error saat parsing laporan coverage: {e}")
+            return {}
+    
+    @staticmethod
+    def identify_low_coverage_functions(module_path: str, covered_lines: list, uncovered_lines: list) -> list:
+        """
+        Mengidentifikasi fungsi-fungsi dengan coverage rendah dalam modul
+        """
+        try:
+            with open(module_path, 'r', encoding='utf-8') as f:
+                code = f.read()
+                
+            # Regex untuk menemukan definisi fungsi
+            function_pattern = re.compile(r'^\s*def\s+(\w+)\s*\(', re.MULTILINE)
+            
+            functions = []
+            lines = code.split('\n')
+            
+            # Temukan semua definisi fungsi
+            for match in function_pattern.finditer(code):
+                func_name = match.group(1)
+                line_num = code[:match.start()].count('\n') + 1
+                
+                # Temukan akhir fungsi (estimasi dengan indentasi)
+                end_line = line_num
+                indent_level = len(lines[line_num - 1]) - len(lines[line_num - 1].lstrip())
+                
+                for i in range(line_num, len(lines)):
+                    line = lines[i]
+                    if line.strip() and not line.isspace():
+                        # Jika ini bukan baris kosong dan indentasi kurang dari atau sama dengan fungsi induk
+                        if len(line) - len(line.lstrip()) <= indent_level and line.lstrip().startswith(('def ', 'class ')):
+                            end_line = i - 1
+                            break
+                    if i == len(lines) - 1:
+                        end_line = i
+                
+                # Hitung baris kode (skip docstring dan komentar)
+                code_lines = []
+                inside_docstring = False
+                docstring_delim = None
+                
+                for i in range(line_num - 1, end_line):
+                    line = lines[i].strip()
+                    
+                    # Skip docstring
+                    if inside_docstring:
+                        if docstring_delim in line:
+                            inside_docstring = False
+                        continue
+                    
+                    if line.startswith('"""') or line.startswith("'''"):
+                        inside_docstring = True
+                        docstring_delim = line[:3]
+                        continue
+                    
+                    # Skip komentar
+                    if not line.startswith('#') and line:
+                        code_lines.append(i + 1)
+                
+                # Hitung coverage
+                code_line_count = len(code_lines)
+                covered_count = sum(1 for line in code_lines if line in covered_lines)
+                
+                if code_line_count > 0:
+                    coverage_pct = covered_count / code_line_count * 100
+                else:
+                    coverage_pct = 100  # Jika tidak ada baris kode (misalnya hanya docstring)
+                
+                functions.append({
+                    "name": func_name,
+                    "start_line": line_num,
+                    "end_line": end_line,
+                    "code_lines": code_line_count,
+                    "covered_lines": covered_count,
+                    "coverage_pct": coverage_pct
+                })
+            
+            # Filter fungsi dengan coverage rendah (<80%)
+            low_coverage_funcs = [f for f in functions if f["coverage_pct"] < 80]
+            
+            return sorted(low_coverage_funcs, key=lambda x: x["coverage_pct"])
+            
+        except Exception as e:
+            logger.error(f"Error saat mengidentifikasi fungsi dengan coverage rendah: {e}")
+            return []
+
+class TestGenerator:
+    """
+    Generator test yang menggunakan Claude API untuk membuat test case
+    """
+    
+    def __init__(self, api_key: str, model: str = "claude-3-5-haiku-20240307", rate_limiter: ClaudeRateLimiter = None):
+        self.client = anthropic.Anthropic(api_key=api_key)
+        self.model = model
+        self.rate_limiter = rate_limiter
+    
+    def generate_test(self, module_path: str, coverage_data: dict, test_framework: str = "pytest") -> str:
+        """
+        Menghasilkan test case menggunakan Claude API
+        """
+        try:
+            # Baca kode modul
+            with open(module_path, 'r', encoding='utf-8') as f:
+                module_code = f.read()
+            
+            # Siapkan informasi coverage untuk prompt
+            coverage_pct = coverage_data.get("coverage_pct", 0)
+            low_coverage_functions = coverage_data.get("low_coverage_functions", [])
+            
+            # Buat string informasi fungsi dengan coverage rendah
+            low_coverage_info = ""
+            if low_coverage_functions:
+                low_coverage_info = "Fungsi dengan coverage rendah:\n"
+                for func in low_coverage_functions:
+                    low_coverage_info += f"- {func['name']} (baris {func['start_line']}-{func['end_line']}): {func['coverage_pct']:.1f}% coverage\n"
+            else:
+                low_coverage_info = "Semua fungsi memiliki coverage parsial, perlu ditingkatkan secara keseluruhan."
+            
+            # Buat prompt untuk Claude
+            module_name = os.path.basename(module_path)
+            prompt = f"""
+            Buatkan test case untuk modul Python berikut yang memiliki coverage rendah ({coverage_pct:.1f}%).
+            
+            Nama file: {module_name}
+            Path: {module_path}
+            
+            Kode modul:
+            ```python
+            {module_code}
+            ```
+            
+            Informasi coverage:
+            {low_coverage_info}
+            
+            Buat test case menggunakan {test_framework} untuk meningkatkan coverage. 
+            Fokuskan pada fungsi yang memiliki coverage rendah dan tambahkan test untuk edge case.
+            
+            Struktur test sesuai dengan best practice {test_framework} dengan:
+            1. Import yang diperlukan
+            2. Test fixture jika dibutuhkan
+            3. Test case yang jelas untuk setiap fungsi/method
+            4. Mocks atau stubs sesuai kebutuhan
+            5. Assertions yang tepat
+            
+            Hanya berikan kode test saja, tanpa penjelasan atau komentar lainnya.
+            """
+            
+            # Hitung token dan perkirakan output
+            input_tokens = TokenCounter.count_tokens_with_anthropic(self.client, prompt)
+            estimated_output_tokens = 3000  # Perkiraan konservatif
+            
+            logger.info(f"Prompt memiliki {input_tokens} token, estimasi output {estimated_output_tokens} token")
+            
+            # Rate limiting jika diaktifkan
+            if self.rate_limiter:
+                self.rate_limiter.wait_for_capacity(input_tokens, estimated_output_tokens)
+            
+            # Kirim request ke Claude API
             response = self.client.messages.create(
-                model=CLAUDE_MODEL,
-                max_tokens=max_tokens,
+                model=self.model,
+                max_tokens=4000,
                 messages=[
                     {"role": "user", "content": prompt}
                 ]
             )
             
-            # Dapatkan respons teks
-            response_text = response.content[0].text
-            
             # Catat penggunaan token output aktual
             actual_output_tokens = response.usage.output_tokens
-            self.rate_limiter.record_actual_usage(actual_output_tokens)
+            if self.rate_limiter:
+                self.rate_limiter.record_actual_usage(actual_output_tokens)
             
-            return response_text
-        
+            logger.info(f"Claude menggunakan {actual_output_tokens} token output")
+            
+            # Ekstrak kode dari response
+            test_code = response.content[0].text
+            
+            # Ekstrak hanya kode Python dari respons jika dibungkus dalam blok kode
+            if "```python" in test_code and "```" in test_code:
+                test_code = test_code.split("```python")[1].split("```")[0].strip()
+            elif "```" in test_code:
+                test_code = test_code.split("```")[1].split("```")[0].strip()
+            
+            return test_code
+            
         except Exception as e:
-            logger.error(f"Error saat memanggil Claude API: {e}")
-            # Jika terjadi error, catat penggunaan token minimum untuk menghindari overestimasi
-            self.rate_limiter.record_actual_usage(1)
+            logger.error(f"Error saat generate test: {e}")
+            # Jika ada rate limiter, catat penggunaan token minimal
+            if self.rate_limiter:
+                self.rate_limiter.record_actual_usage(1)
+            raise
+    
+    def write_test_file(self, module_path: str, test_code: str) -> str:
+        """
+        Menulis test code ke file yang sesuai
+        """
+        try:
+            # Tentukan struktur direktori untuk test file
+            module_rel_path = module_path
+            
+            # Jika module_path dimulai dengan 'src/', hilangkan
+            if module_rel_path.startswith('src/'):
+                module_rel_path = module_rel_path[4:]
+            
+            # Dapatkan nama modul dan direktori
+            module_dir = os.path.dirname(module_rel_path)
+            module_name = os.path.basename(module_path)
+            if module_name.endswith('.py'):
+                module_name = module_name[:-3]
+            
+            # Buat direktori test
+            test_dir = os.path.join('tests', module_dir)
+            os.makedirs(test_dir, exist_ok=True)
+            
+            # Tentukan nama file test
+            test_file = os.path.join(test_dir, f'test_{module_name}.py')
+            
+            # Jika file sudah ada, buat versi baru
+            if os.path.exists(test_file):
+                version = 1
+                while os.path.exists(f"{test_dir}/test_{module_name}_v{version}.py"):
+                    version += 1
+                test_file = f"{test_dir}/test_{module_name}_v{version}.py"
+            
+            # Tulis test code ke file
+            with open(test_file, 'w', encoding='utf-8') as f:
+                f.write(test_code)
+            
+            logger.info(f"Test file disimpan ke: {test_file}")
+            return test_file
+            
+        except Exception as e:
+            logger.error(f"Error saat menulis test file: {e}")
             raise
 
-class CoverageAnalyzer:
-    """
-    Menganalisis laporan coverage untuk mengidentifikasi bagian kode yang perlu ditingkatkan
-    """
-    
-    @staticmethod
-    def parse_coverage_report(coverage_path: str = "coverage.xml") -> List[Dict[str, Any]]:
-        """
-        Mem-parsing laporan coverage XML dan mengidentifikasi modul dengan coverage rendah
-        """
-        if not os.path.exists(coverage_path):
-            logger.error(f"File coverage tidak ditemukan: {coverage_path}")
-            return []
-        
-        try:
-            tree = ET.parse(coverage_path)
-            root = tree.getroot()
-            
-            low_coverage_modules = []
-            
-            # Temukan kelas dengan coverage rendah
-            for class_element in root.findall('.//class'):
-                filename = class_element.get('filename')
-                line_rate = float(class_element.get('line-rate', 0))
-                
-                # Jika file ada dan coverage kurang dari 70%
-                if os.path.exists(filename) and line_rate < 0.7:
-                    try:
-                        with open(filename, 'r', encoding='utf-8') as f:
-                            code = f.read()
-                        
-                        # Dapatkan informasi per-line jika tersedia
-                        lines = []
-                        for line in class_element.findall('.//line'):
-                            line_number = int(line.get('number'))
-                            hits = int(line.get('hits', 0))
-                            lines.append({
-                                'number': line_number,
-                                'hits': hits
-                            })
-                        
-                        # Sort lines by number for easier processing
-                        lines.sort(key=lambda x: x['number'])
-                        
-                        low_coverage_modules.append({
-                            'filename': filename,
-                            'coverage': line_rate * 100,
-                            'code': code,
-                            'lines': lines
-                        })
-                    except Exception as e:
-                        logger.warning(f"Tidak dapat membaca file {filename}: {e}")
-            
-            return low_coverage_modules
-            
-        except Exception as e:
-            logger.error(f"Error saat parsing laporan coverage: {e}")
-            return []
-    
-    @staticmethod
-    def identify_uncovered_functions(module: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        Mengidentifikasi fungsi-fungsi yang tidak tercakup test dalam suatu modul
-        """
-        code = module['code']
-        lines = module['lines']
-        
-        # Set line numbers yang telah ditest (hits > 0)
-        covered_lines = {line['number'] for line in lines if line['hits'] > 0}
-        
-        # Pola regex sederhana untuk mendeteksi fungsi
-        function_pattern = re.compile(r'^\s*def\s+(\w+)\s*\(', re.MULTILINE)
-        
-        # Temukan semua fungsi
-        functions = []
-        for match in function_pattern.finditer(code):
-            func_name = match.group(1)
-            line_number = code[:match.start()].count('\n') + 1
-            
-            # Perkirakan akhir fungsi (Ini pendekatan sederhana, tidak menangani semua kasus)
-            next_match = function_pattern.search(code, match.end())
-            if next_match:
-                end_line = code[:next_match.start()].count('\n')
-            else:
-                end_line = code.count('\n') + 1
-            
-            # Cek apakah fungsi setidaknya memiliki satu baris yang tercakup
-            function_lines = set(range(line_number, end_line + 1))
-            has_coverage = bool(function_lines.intersection(covered_lines))
-            
-            functions.append({
-                'name': func_name,
-                'start_line': line_number,
-                'end_line': end_line,
-                'has_coverage': has_coverage
-            })
-        
-        # Filter fungsi yang tidak tercakup
-        uncovered_functions = [f for f in functions if not f['has_coverage']]
-        return uncovered_functions
-
-class TestGenerator:
-    """
-    Membuat test case menggunakan Claude API
-    """
-    
-    def __init__(self, claude_client: ClaudeClient):
-        self.claude_client = claude_client
-    
-    def generate_tests_for_module(self, module: Dict[str, Any], test_framework: str = "pytest") -> str:
-        """
-        Menghasilkan test case untuk modul berdasarkan code dan coverage data
-        """
-        filename = module['filename']
-        code = module['code']
-        coverage = module['coverage']
-        
-        # Identifikasi fungsi yang tidak tercakup
-        uncovered_functions = CoverageAnalyzer.identify_uncovered_functions(module)
-        uncovered_names = [f['name'] for f in uncovered_functions]
-        
-        # Buat prompt untuk Claude
-        prompt = f"""
-        Saya memiliki modul Python dengan coverage test yang rendah ({coverage:.1f}%).
-        
-        Nama file: {filename}
-        
-        ```python
-        {code}
-        ```
-        
-        Fungsi-fungsi yang tidak tercakup test:
-        {', '.join(uncovered_names) if uncovered_names else 'Semua fungsi hanya memiliki coverage parsial'}
-        
-        Tolong buatkan test case menggunakan {test_framework} untuk meningkatkan coverage.
-        Fokuskan pada fungsi yang tidak tercakup dan edge case.
-        Test harus mengikuti best practice dan menyertakan assertion yang tepat.
-        Jangan sertakan penjelasan, hanya kode Python untuk test saja.
-        
-        Pastikan test yang dihasilkan dapat dijalankan dan valid sesuai dengan {test_framework}.
-        """
-        
-        # Generate test dengan Claude
-        test_code = self.claude_client.generate_response(prompt)
-        
-        # Ekstrak kode Python dari respons jika perlu
-        if "```python" in test_code and "```" in test_code:
-            test_code = test_code.split("```python")[1].split("```")[0].strip()
-        elif "```" in test_code:
-            test_code = test_code.split("```")[1].split("```")[0].strip()
-        
-        return test_code
-    
-    def write_test_file(self, module: Dict[str, Any], test_code: str) -> str:
-        """
-        Menulis kode test ke file
-        """
-        filename = module['filename']
-        
-        # Tentukan path test file
-        module_name = os.path.basename(filename)
-        test_dir = "tests"
-        
-        if not os.path.exists(test_dir):
-            os.makedirs(test_dir)
-        
-        if module_name.endswith('.py'):
-            module_name = module_name[:-3]
-        
-        test_file = f"{test_dir}/test_{module_name}.py"
-        
-        # Jangan timpa file yang ada jika formatnya sama
-        if os.path.exists(test_file):
-            new_version = 1
-            while os.path.exists(f"{test_dir}/test_{module_name}_v{new_version}.py"):
-                new_version += 1
-            test_file = f"{test_dir}/test_{module_name}_v{new_version}.py"
-        
-        # Tulis ke file
-        with open(test_file, 'w', encoding='utf-8') as f:
-            f.write(test_code)
-        
-        logger.info(f"Test untuk {filename} telah dibuat di {test_file}")
-        return test_file
-
-class TestImprovementPipeline:
-    """
-    Pipeline lengkap untuk meningkatkan coverage test dengan Claude
-    """
-    
-    def __init__(self, api_key: str, rate_limit_config: RateLimitConfig = None):
-        if rate_limit_config is None:
-            rate_limit_config = RateLimitConfig()
-            
-        self.rate_limiter = ClaudeRateLimiter(rate_limit_config)
-        self.claude_client = ClaudeClient(api_key, self.rate_limiter)
-        self.test_generator = TestGenerator(self.claude_client)
-    
-    def run(self, coverage_path: str = "coverage.xml", min_coverage_threshold: float = 70.0):
-        """
-        Menjalankan pipeline lengkap
-        """
-        logger.info("Memulai pipeline peningkatan test...")
-        
-        # Analisis coverage report
-        low_coverage_modules = CoverageAnalyzer.parse_coverage_report(coverage_path)
-        logger.info(f"Menemukan {len(low_coverage_modules)} modul dengan coverage rendah")
-        
-        if not low_coverage_modules:
-            logger.info("Tidak ada modul dengan coverage rendah ditemukan")
-            return
-        
-        # Urutkan modul berdasarkan coverage (paling rendah lebih dulu)
-        low_coverage_modules.sort(key=lambda m: m['coverage'])
-        
-        # Proses setiap modul
-        for module in low_coverage_modules:
-            filename = module['filename']
-            coverage = module['coverage']
-            
-            logger.info(f"Memproses {filename} dengan coverage {coverage:.1f}%")
-            
-            # Generate test
-            test_code = self.test_generator.generate_tests_for_module(module)
-            
-            # Tulis test ke file
-            test_file = self.test_generator.write_test_file(module, test_code)
-            
-            logger.info(f"Test baru ditulis ke {test_file}")
-        
-        logger.info("Pipeline selesai!")
-
-
-# Fungsi utama untuk menjalankan pipeline dari CLI
 def main():
-    """
-    Fungsi utama untuk menjalankan test generator dari command line
-    """
-    import argparse
+    """Fungsi utama untuk menjalankan test generator"""
+    parser = argparse.ArgumentParser(description='Generate test cases untuk modul Python dengan Claude API')
     
-    parser = argparse.ArgumentParser(description='Claude Test Generator')
-    parser.add_argument('--coverage-path', type=str, default='coverage.xml',
-                        help='Path ke file laporan coverage XML')
-    parser.add_argument('--min-coverage', type=float, default=70.0,
-                        help='Threshold minimum coverage (persentase)')
-    parser.add_argument('--api-key', type=str, default=None,
-                        help='Anthropic API key (default: dari env ANTHROPIC_API_KEY)')
-    parser.add_argument('--export-workflow', action='store_true',
-                        help='Export GitHub Action workflow YAML ke file')
+    parser.add_argument('--module', required=True, help='Path ke modul yang akan dibuatkan test')
+    parser.add_argument('--coverage-threshold', type=float, default=80.0, 
+                        help='Threshold persentase minimum coverage yang ditargetkan')
+    parser.add_argument('--coverage-file', default='coverage.xml', help='Path ke file laporan coverage XML')
+    parser.add_argument('--test-framework', default='pytest', choices=['pytest', 'unittest'], 
+                        help='Framework test yang digunakan')
+    
+    parser.add_argument('--api-key', help='Anthropic API key (default: dari env ANTHROPIC_API_KEY)')
+    parser.add_argument('--model', default='claude-3-5-haiku-20240307', help='Model Claude yang digunakan')
+    
+    parser.add_argument('--rate-limit-rpm', type=int, default=5, help='Request per menit')
+    parser.add_argument('--rate-limit-input-tpm', type=int, default=25000, help='Token input per menit')
+    parser.add_argument('--rate-limit-output-tpm', type=int, default=5000, help='Token output per menit')
+    
+    parser.add_argument('--verbose', '-v', action='store_true', help='Mode verbose untuk logging')
+    
     args = parser.parse_args()
     
-    # Export GitHub workflow jika diminta
-    if args.export_workflow:
-        with open('.github/workflows/ai-test-coverage.yml', 'w') as f:
-            f.write(GITHUB_WORKFLOW_YAML)
-        logger.info("GitHub Action workflow telah diekspor ke .github/workflows/ai-test-coverage.yml")
-        return
+    # Set log level
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+    
+    # Validasi modul path
+    if not os.path.exists(args.module):
+        logger.error(f"Modul tidak ditemukan: {args.module}")
+        sys.exit(1)
     
     # Dapatkan API key
     api_key = args.api_key or os.environ.get('ANTHROPIC_API_KEY')
     if not api_key:
         logger.error("Anthropic API key tidak ditemukan. Gunakan --api-key atau set env ANTHROPIC_API_KEY")
-        return
+        sys.exit(1)
     
-    # Rate limit config untuk Claude 3.5 Haiku
+    # Buat rate limiter
     rate_limit_config = RateLimitConfig(
-        requests_per_minute=5,
-        input_tokens_per_minute=25000,
-        output_tokens_per_minute=5000
+        requests_per_minute=args.rate_limit_rpm,
+        input_tokens_per_minute=args.rate_limit_input_tpm,
+        output_tokens_per_minute=args.rate_limit_output_tpm
     )
+    rate_limiter = ClaudeRateLimiter(rate_limit_config)
     
-    # Buat dan jalankan pipeline
-    pipeline = TestImprovementPipeline(api_key, rate_limit_config)
-    pipeline.run(args.coverage_path, args.min_coverage)
+    # Analisis coverage
+    logger.info(f"Menganalisis coverage untuk modul: {args.module}")
+    coverage_data = CoverageAnalyzer.parse_coverage_data(args.module, args.coverage_file)
+    
+    coverage_pct = coverage_data.get("coverage_pct", 0)
+    logger.info(f"Coverage saat ini: {coverage_pct:.1f}%")
+    
+    if coverage_pct >= args.coverage_threshold:
+        logger.info(f"Coverage sudah mencapai threshold ({args.coverage_threshold}%). Tidak perlu generate test.")
+        sys.exit(0)
+    
+    # Generate test
+    logger.info(f"Membuat test dengan Claude {args.model}")
+    generator = TestGenerator(api_key, args.model, rate_limiter)
+    
+    try:
+        test_code = generator.generate_test(args.module, coverage_data, args.test_framework)
+        test_file = generator.write_test_file(args.module, test_code)
+        logger.info(f"Test berhasil dibuat: {test_file}")
+    except Exception as e:
+        logger.error(f"Gagal membuat test: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
