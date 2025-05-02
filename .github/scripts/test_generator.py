@@ -930,7 +930,7 @@ def main():
                         help='Test framework to use')
     
     parser.add_argument('--api-key', help='API key (default: from env OPENROUTER_API_KEY or OPENAI_API_KEY)')
-    parser.add_argument('--model', default='openai/gpt-4.1', 
+    parser.add_argument('--model', default='google/gemini-2.0-flash-001', 
                         help='Model to use')
     parser.add_argument('--site-url', default='https://test-generator-app.com', 
                         help='URL for HTTP-Referer header (OpenRouter)')
