@@ -167,7 +167,7 @@ jobs:
       
       - name: 🤖 Generate tests with Claude
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           MODULE_PATH: ${{ matrix.module }}
           COVERAGE_THRESHOLD: ${{ github.event.inputs.coverage_threshold }}
         run: |
