@@ -43,8 +43,8 @@ logger = logging.getLogger("ai-test-generator")
 class RateLimitConfig:
     """Rate limit configuration for API calls"""
     requests_per_minute: int = 5
-    input_tokens_per_minute: int = 25000  
-    output_tokens_per_minute: int = 5000
+    input_tokens_per_minute: int = 50000  
+    output_tokens_per_minute: int = 10000
 
 class ApiRateLimiter:
     """
@@ -556,7 +556,7 @@ class TestGenerator:
             
             # Count tokens and estimate output
             input_tokens = TokenCounter.count_tokens_with_model(self.client, user_prompt, self.model)
-            estimated_output_tokens = 3000  # Conservative estimate
+            estimated_output_tokens = 5000  # Conservative estimate
             
             logger.info(f"Prompt contains {input_tokens} tokens, estimated output {estimated_output_tokens} tokens")
             
@@ -575,7 +575,7 @@ class TestGenerator:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=4000,
+                max_tokens=10000,
             )
             
             # Estimate actual output token usage
@@ -945,8 +945,8 @@ def main():
                         help='Use OpenAI API directly (default: False)')
     
     parser.add_argument('--rate-limit-rpm', type=int, default=5, help='Requests per minute')
-    parser.add_argument('--rate-limit-input-tpm', type=int, default=25000, help='Input tokens per minute')
-    parser.add_argument('--rate-limit-output-tpm', type=int, default=5000, help='Output tokens per minute')
+    parser.add_argument('--rate-limit-input-tpm', type=int, default=50000, help='Input tokens per minute')
+    parser.add_argument('--rate-limit-output-tpm', type=int, default=10000, help='Output tokens per minute')
     
     parser.add_argument('--verbose', '-v', action='store_true', help='Verbose logging')
     
