@@ -43,8 +43,8 @@ logger = logging.getLogger("ai-test-generator")
 class RateLimitConfig:
     """Rate limit configuration for API calls"""
     requests_per_minute: int = 5
-    input_tokens_per_minute: int = 50000  
-    output_tokens_per_minute: int = 10000
+    input_tokens_per_minute: int = 25000  
+    output_tokens_per_minute: int = 5000
 
 class ApiRateLimiter:
     """
@@ -406,7 +406,7 @@ class TestPromptGenerator:
         if requirements.get('needs_pytest_asyncio', False):
             dependency_guidance.append("- This project uses async functions: import pytest.mark.asyncio and unittest.mock.AsyncMock")
         if requirements.get('needs_pytest_mock', False):
-            dependency_guidance.append("- This project uses pytest-mock: include the 'mocker' fixture in test functions")
+            dependency_guidance.append("- This project uses mocking: use the unittest.mock library instead of pytest-mock")
         if requirements.get('has_async', False) and requirements.get('needs_mock', False):
             dependency_guidance.append("- For mocking async functions, use AsyncMock and ensure proper awaits")
         
@@ -420,6 +420,13 @@ class TestPromptGenerator:
         if any('Radio' in cls['name'] for cls in classes):
             model_requirements.append("- Ensure proper initialization of model classes with required fields")
             model_requirements.append("- When mocking responses, include ALL required fields from models to avoid MissingField errors")
+        
+        # Add stronger warning about model fields - especially for mashumaro or dataclasses
+        if 'mashumaro' in module_code or 'from_dict' in module_code or 'from_json' in module_code:
+            model_requirements.append("- CRITICAL: When creating mock data, ALL required fields MUST be included in the model dictionaries")
+            model_requirements.append("- Missing fields will cause MissingField exceptions from data serialization libraries")
+            model_requirements.append("- Common required fields that might be missed: change_uuid, code, supported_version")
+            model_requirements.append("- Include ALL model fields in mock data, even if they seem unimportant")
         
         if 'json' in module_code:
             model_requirements.append("- For JSON responses, ensure the mock data matches the expected model structure completely")
@@ -463,6 +470,8 @@ Write clean, production-quality {test_framework} test code for this Python modul
 9. Create descriptive test function names that indicate what is being tested
 10. Include proper error handling and edge case testing
 11. If working with model classes, ensure validation checks pass
+12. IMPORTANT: DO NOT use pytest-mock fixtures (mocker). Use unittest.mock directly.
+13. Use class-level fixtures with self parameter instead of function-level fixtures when testing classes
 
 Your response MUST be valid Python code that can be directly saved and executed with {test_framework}.
 """
@@ -545,7 +554,7 @@ class TestGenerator:
             
             # Count tokens and estimate output
             input_tokens = TokenCounter.count_tokens_with_model(self.client, user_prompt, self.model)
-            estimated_output_tokens = 5000  # Conservative estimate
+            estimated_output_tokens = 3000  # Conservative estimate
             
             logger.info(f"Prompt contains {input_tokens} tokens, estimated output {estimated_output_tokens} tokens")
             
@@ -564,7 +573,7 @@ class TestGenerator:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=10000,
+                max_tokens=4000,
             )
             
             # Estimate actual output token usage
@@ -631,27 +640,71 @@ class TestGenerator:
         if requirements.get('needs_pytest', False) and "import pytest" not in test_code:
             imports_to_include.append("import pytest")
         
-        if requirements.get('needs_pytest_mock', False) and "pytest_mock" not in test_code:
-            imports_to_include.append("import pytest_mock")
-            # Add pytest-mock plugin if not present
-            if "pytest_plugins" not in test_code:
-                imports_to_include.append("pytest_plugins = ['pytest_mock']")
+        # Remove or replace pytest-mock references
+        test_code = test_code.replace("import pytest_mock", "# No pytest-mock dependency")
+        test_code = test_code.replace("pytest_plugins = ['pytest_mock']", "# No pytest-mock plugins needed")
         
-        # Check for AsyncMock
-        if requirements.get('needs_asyncmock', False) and "AsyncMock" in test_code and "from unittest.mock import AsyncMock" not in test_code:
-            imports_to_include.append("from unittest.mock import AsyncMock")
+        # Replace 'mocker' fixture usage with unittest.mock
+        if "mocker" in test_code:
+            test_code = test_code.replace("def test_", "def old_test_")  # Rename old functions
+            
+            # Find all test functions with mocker parameter
+            mocker_pattern = re.compile(r'def\s+(?:test_\w+)\s*\(\s*.*?\bmocker\b.*?\)\s*:', re.DOTALL)
+            for match in mocker_pattern.finditer(test_code):
+                old_signature = match.group(0)
+                new_signature = old_signature.replace("mocker", "")
+                new_signature = new_signature.replace("(,", "(").replace(",)", ")").replace("()", "(self)")
+                test_code = test_code.replace(old_signature, new_signature)
+            
+            # Replace mocker.patch with patch
+            test_code = test_code.replace("mocker.patch", "patch")
+            
+            # Fix fixture definitions with mocker parameter
+            fixture_pattern = re.compile(r'@pytest\.fixture\s*\(.*?\)\s*\n\s*def\s+(\w+)\s*\(\s*.*?\bmocker\b.*?\)\s*:', re.DOTALL)
+            for match in fixture_pattern.finditer(test_code):
+                fixture_name = match.group(1)
+                old_fixture = match.group(0)
+                new_fixture = old_fixture.replace("mocker", "")
+                new_fixture = new_fixture.replace("(,", "(").replace(",)", ")").replace("()", "(self)")
+                test_code = test_code.replace(old_fixture, new_fixture)
         
-        # Check for patch
-        if requirements.get('needs_patch', False) and "patch" in test_code and "unittest.mock" not in test_code:
-            if "AsyncMock" in imports_to_include[-1] if imports_to_include else False:
-                # Modify last import to include patch
-                imports_to_include[-1] = "from unittest.mock import AsyncMock, patch"
-            else:
-                imports_to_include.append("from unittest.mock import patch")
+        # Make sure we have unittest.mock imports if mock/patch is used
+        if ("unittest.mock" not in test_code and 
+            ("patch" in test_code or "MagicMock" in test_code or "AsyncMock" in test_code)):
+            imports_to_include.append("from unittest.mock import patch, MagicMock, AsyncMock")
         
-        # Add general mock import if needed
-        if requirements.get('needs_mock', False) and "MagicMock" not in test_code and "unittest.mock import MagicMock" not in test_code:
-            imports_to_include.append("from unittest.mock import MagicMock")
+        # Check for missing field errors and add them as comments
+        missing_field_patterns = [
+            r'MissingField.*?Field\s+"(\w+)"',
+            r'Field\s+"(\w+)"\s+.*?\s+is\s+missing'
+        ]
+        
+        # Read test failures if any
+        test_failures = []
+        for pattern in missing_field_patterns:
+            for root, _, files in os.walk('tests'):
+                for file in files:
+                    if file.endswith('.log') or file.endswith('.txt'):
+                        try:
+                            with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
+                                content = f.read()
+                                for match in re.finditer(pattern, content):
+                                    field = match.group(1)
+                                    if field not in test_failures:
+                                        test_failures.append(field)
+                        except:
+                            pass
+        
+        # Add missing field warnings to mock data
+        if test_failures:
+            mock_pattern = re.compile(r'mock_\w+_data\s*=\s*\{')
+            for match in mock_pattern.finditer(test_code):
+                position = match.end()
+                missing_fields_comment = "\n    # INCLUDE THESE REQUIRED FIELDS TO AVOID ERRORS:\n"
+                for field in test_failures:
+                    missing_fields_comment += f'    # "{field}": "value",\n'
+                # Insert comment after the opening brace
+                test_code = test_code[:position] + missing_fields_comment + test_code[position:]
         
         # Add import for the module under test if not present
         module_import = f"from {import_path} import *"
@@ -673,6 +726,29 @@ class TestGenerator:
                 processed_lines.append(line)
             
             test_code = '\n'.join(processed_lines)
+        
+        # Add test class if using instance fixtures but no test class
+        if "def " in test_code and "(self)" in test_code and not "class Test" in test_code:
+            # Extract non-fixture functions with self parameter but no class
+            func_pattern = re.compile(r'def\s+(?!fixture)(\w+)\s*\(\s*self\s*(?:,|\))', re.DOTALL)
+            matches = func_pattern.findall(test_code)
+            
+            if matches:
+                # Extract lines before the first function
+                first_func_line = test_code.find(f"def {matches[0]}")
+                prefix = test_code[:first_func_line].rstrip()
+                suffix = test_code[first_func_line:]
+                
+                # Create a test class wrapper
+                module_name = os.path.basename(module_path)
+                if module_name.endswith('.py'):
+                    module_name = module_name[:-3]
+                
+                class_name = f"Test{module_name.title()}"
+                class_def = f"\nclass {class_name}:\n"
+                
+                # Add the class definition and indent all the functions
+                test_code = prefix + class_def + "\n".join(f"    {line}" for line in suffix.split('\n'))
         
         # Validate that the result is proper Python syntax
         try:
@@ -706,11 +782,7 @@ class TestGenerator:
         test_code = f"""# AUTO-GENERATED TEST SCAFFOLD
 import pytest
 from unittest.mock import patch, MagicMock{', AsyncMock' if has_async else ''}
-import pytest_mock  # For mocker fixture
 from {import_path} import *
-
-# Register pytest-mock plugin
-pytest_plugins = ['pytest_mock']
 
 """
         
@@ -727,7 +799,7 @@ pytestmark = pytest.mark.asyncio
             test_code += f"""
 class Test{cls_name}:
     @pytest.fixture
-    def {cls_name.lower()}_instance(self, mocker):
+    def {cls_name.lower()}_instance(self):
         # TODO: Customize fixture with appropriate initialization
         return {cls_name}()
     
@@ -746,12 +818,13 @@ class Test{cls_name}:
                     continue  # Skip private methods
                 
                 test_code += f"""    {'@pytest.mark.asyncio' if has_async or method['async'] else ''}
-    {'async ' if has_async or method['async'] else ''}def test_{cls_name.lower()}_{method['name']}(self, {cls_name.lower()}_instance, mocker):
+    {'async ' if has_async or method['async'] else ''}def test_{cls_name.lower()}_{method['name']}(self, {cls_name.lower()}_instance):
         # TODO: Set up appropriate test parameters and mocks
         {'mock_result = AsyncMock()' if method['async'] else 'mock_result = MagicMock()'}
         # TODO: Adjust expected parameters and return values
-        {'result = await ' + cls_name.lower() + '_instance.' + method['name'] + '()' if method['async'] else 'result = ' + cls_name.lower() + '_instance.' + method['name'] + '()'}
-        assert result is not None  # Replace with appropriate assertions
+        with patch('some.module.path', mock_result):
+            {'result = await ' + cls_name.lower() + '_instance.' + method['name'] + '()' if method['async'] else 'result = ' + cls_name.lower() + '_instance.' + method['name'] + '()'}
+            assert result is not None  # Replace with appropriate assertions
     
 """
         
@@ -762,13 +835,40 @@ class Test{cls_name}:
                 
             test_code += f"""
 {'@pytest.mark.asyncio' if has_async or func['async'] else ''}
-{'async ' if has_async or func['async'] else ''}def test_{func['name']}(mocker):
+{'async ' if has_async or func['async'] else ''}def test_{func['name']}():
     # TODO: Setup appropriate test parameters and mocks
     {'mock_result = AsyncMock()' if func['async'] else 'mock_result = MagicMock()'}
     # TODO: Adjust expected parameters and return values
-    {'result = await ' + func['name'] + '()' if func['async'] else 'result = ' + func['name'] + '()'}
-    assert result is not None  # Replace with appropriate assertions
+    with patch('some.module.path', mock_result):
+        {'result = await ' + func['name'] + '()' if func['async'] else 'result = ' + func['name'] + '()'}
+        assert result is not None  # Replace with appropriate assertions
 """
+        
+        # Handle special model needs
+        model_fields_found = []
+        for root, _, files in os.walk('tests'):
+            for file in files:
+                if file.endswith('.log') or file.endswith('.txt'):
+                    try:
+                        with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
+                            content = f.read()
+                            missing_field_pattern = re.compile(r'MissingField.*?Field\s+"([^"]+)"')
+                            for match in missing_field_pattern.finditer(content):
+                                field = match.group(1)
+                                if field not in model_fields_found:
+                                    model_fields_found.append(field)
+                    except:
+                        pass
+        
+        if model_fields_found:
+            test_code += """
+# IMPORTANT: Include these required fields in all mock data
+# Example mock data with required fields:
+mock_data_example = {
+"""
+            for field in model_fields_found:
+                test_code += f'    "{field}": "value",\n'
+            test_code += "}\n"
         
         return test_code
     
@@ -843,8 +943,8 @@ def main():
                         help='Use OpenAI API directly (default: False)')
     
     parser.add_argument('--rate-limit-rpm', type=int, default=5, help='Requests per minute')
-    parser.add_argument('--rate-limit-input-tpm', type=int, default=50000, help='Input tokens per minute')
-    parser.add_argument('--rate-limit-output-tpm', type=int, default=10000, help='Output tokens per minute')
+    parser.add_argument('--rate-limit-input-tpm', type=int, default=25000, help='Input tokens per minute')
+    parser.add_argument('--rate-limit-output-tpm', type=int, default=5000, help='Output tokens per minute')
     
     parser.add_argument('--verbose', '-v', action='store_true', help='Verbose logging')
     
