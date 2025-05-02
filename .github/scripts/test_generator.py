@@ -462,19 +462,19 @@ Write clean, production-quality {test_framework} test code for this Python modul
 {model_requirements_text}
 
 ## STRICT GUIDELINES
+## STRICT GUIDELINES
 1. Write ONLY valid Python test code with no explanations or markdown
 2. Include proper imports for ALL required packages and modules
 3. Import the module under test correctly: `from {import_path} import *`
 4. Focus on COMPLETE test coverage for functions with low coverage
-5. For mock responses, include ALL required fields in model dictionaries/JSON
-6. Never skip required fields in mock responses - check actual model structure
-7. Use appropriate fixtures and test setup for the testing framework
-8. When asserting values, ensure case sensitivity and exact type matching
-9. Create descriptive test function names that indicate what is being tested
-10. Include proper error handling and edge case testing
-11. If working with model classes, ensure validation checks pass
-12. IMPORTANT: DO NOT use pytest-mock fixtures (mocker). Use unittest.mock directly.
-13. Use class-level fixtures with self parameter instead of function-level fixtures when testing classes
+5. CRITICALLY IMPORTANT: For mock responses, examine model class definitions and include EVERY field
+6. When creating mock JSON data, include ALL fields from the corresponding model class
+7. Pay special attention to numeric fields (counts, metrics), timestamps, and status fields
+8. When mock data causes MissingField errors, add ALL fields mentioned in the error messages
+9. Use appropriate fixtures and test setup for the testing framework
+10. When asserting values, ensure case sensitivity and exact type matching
+11. Create comprehensive mock data that represents real-world responses
+12. Use unittest.mock directly instead of mocker fixtures
 
 Your response MUST be valid Python code that can be directly saved and executed with {test_framework}.
 """
