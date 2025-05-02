@@ -415,6 +415,16 @@ class TestPromptGenerator:
         # Model requirements
         model_requirements = []
         classes, functions = CodeAnalyzer.extract_classes_and_methods(module_code)
+
+        data_model_pattern = re.compile(r'class\s+(\w+).*?:.*?from_(?:json|dict)', re.DOTALL)
+        model_classes = data_model_pattern.findall(module_code)
+        
+        if model_classes:
+            model_requirements.append("- CRITICAL: Mock data MUST include ALL required fields for data models:")
+            for model in model_classes:
+                model_requirements.append(f"  * For {model} model, include ALL fields or the tests will fail with MissingField errors")
+            model_requirements.append("- Check the actual model classes to identify ALL required fields")
+            model_requirements.append("- Parse existing tests for MissingField errors to identify missing required fields")
         
         # Check for specific classes or patterns in code
         if any('Radio' in cls['name'] for cls in classes):
@@ -424,6 +434,10 @@ class TestPromptGenerator:
         if 'json' in module_code:
             model_requirements.append("- For JSON responses, ensure the mock data matches the expected model structure completely")
         
+        if 'mashumaro' in module_code:
+                model_requirements.append("- This code uses mashumaro for data serialization which requires ALL fields to be present in mock data")
+                model_requirements.append("- Pay special attention to error messages in test output which will reveal missing fields")
+            
         model_requirements_text = "\n".join(model_requirements) if model_requirements else "No special model requirements detected."
         
         # Create the full prompt
@@ -457,12 +471,12 @@ Write clean, production-quality {test_framework} test code for this Python modul
 3. Import the module under test correctly: `from {import_path} import *`
 4. Focus on COMPLETE test coverage for functions with low coverage
 5. For mock responses, include ALL required fields in model dictionaries/JSON
-6. Never skip required fields in mock responses - check actual model structure
+6. Never skip required fields in mock responses - check actual model structure , CRITICAL: Check for mashumaro.exceptions.MissingField errors in existing tests to identify required fields
 7. Use appropriate fixtures and test setup for the testing framework
 8. When asserting values, ensure case sensitivity and exact type matching
 9. Create descriptive test function names that indicate what is being tested
 10. Include proper error handling and edge case testing
-11. If working with model classes, ensure validation checks pass
+11. If working with model classes, scan the model definitions to identify ALL required fields 
 
 Your response MUST be valid Python code that can be directly saved and executed with {test_framework}.
 """
@@ -673,6 +687,29 @@ class TestGenerator:
                 processed_lines.append(line)
             
             test_code = '\n'.join(processed_lines)
+
+        model_fields = self._extract_model_fields(module_path)
+        
+        # Check if mock data is missing required fields
+        for model_name, fields in model_fields.items():
+            if model_name in test_code:
+                # Check if any mock data for this model is missing required fields
+                mock_var_pattern = re.compile(rf'mock_({model_name.lower()})s?_data')
+                matches = mock_var_pattern.findall(test_code)
+                
+                if matches:
+                    for match in matches:
+                        # Look for missing fields in mock data
+                        for field in fields:
+                            if field not in test_code:
+                                logger.warning(f"Mock data may be missing required field '{field}' for model '{model_name}'")
+                                # Add comment to warn about missing field
+                                test_code = re.sub(
+                                    rf'({match}.*?{{)',
+                                    f'\\1\n    # WARNING: Ensure {field} field is included for {model_name} model',
+                                    test_code, 
+                                    flags=re.DOTALL
+                                )
         
         # Validate that the result is proper Python syntax
         try:
@@ -685,6 +722,94 @@ class TestGenerator:
         
         return test_code
     
+    def _extract_model_fields(self, module_path: str) -> Dict[str, List[str]]:
+        """
+        Extract model classes and their required fields from the module
+        """
+        model_fields = {}
+        
+        try:
+            # Read the module
+            with open(module_path, 'r', encoding='utf-8') as f:
+                code = f.read()
+            
+            # Parse the code to AST
+            tree = ast.parse(code)
+            
+            # Find model classes and their fields
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef):
+                    # Check for class attributes that might be model fields
+                    fields = []
+                    
+                    for item in node.body:
+                        # Look for class variables
+                        if isinstance(item, ast.AnnAssign) and hasattr(item, 'annotation'):
+                            field_name = item.target.id if hasattr(item.target, 'id') else None
+                            if field_name:
+                                fields.append(field_name)
+                    
+                    if fields:
+                        model_fields[node.name] = fields
+            
+            # Also check for any MissingField exceptions in tests
+            test_dir = os.path.join('tests')
+            if os.path.exists(test_dir):
+                for root, _, files in os.walk(test_dir):
+                    for file in files:
+                        if file.startswith('test_') and file.endswith('.py'):
+                            with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
+                                test_content = f.read()
+                                
+                                # Find MissingField exceptions to extract field names
+                                missing_field_pattern = re.compile(r'MissingField.*?Field\s+"([^"]+)"')
+                                for match in missing_field_pattern.finditer(test_content):
+                                    field = match.group(1)
+                                    # Add to all model classes to be safe
+                                    for model in model_fields:
+                                        if field not in model_fields[model]:
+                                            model_fields[model].append(field)
+            
+            return model_fields
+        except Exception as e:
+            logger.warning(f"Failed to extract model fields: {e}")
+            return {}
+
+
+    def _analyze_test_failures(self, module_path: str) -> Dict[str, List[str]]:
+        """
+        Analyze existing test failures to identify missing model fields
+        """
+        missing_fields = {}
+        
+        # Look for test failure outputs
+        for root, _, files in os.walk('tests'):
+            for file in files:
+                if file.endswith('.log') or file.endswith('.txt'):
+                    try:
+                        with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
+                            content = f.read()
+                            
+                            # Look for MissingField errors
+                            missing_field_pattern = re.compile(
+                                r'MissingField:\s+Field\s+"([^"]+)".*?is\s+missing\s+in\s+(\w+)\s+instance',
+                                re.DOTALL
+                            )
+                            
+                            for match in missing_field_pattern.finditer(content):
+                                field = match.group(1)
+                                model = match.group(2)
+                                
+                                if model not in missing_fields:
+                                    missing_fields[model] = []
+                                
+                                if field not in missing_fields[model]:
+                                    missing_fields[model].append(field)
+                    except Exception as e:
+                        logger.warning(f"Error analyzing test failure file: {e}")
+        
+        return missing_fields
+
     def _generate_fallback_test(self, module_path: str, import_path: str) -> str:
         """
         Generate a simple test scaffold as fallback when AI generation fails
