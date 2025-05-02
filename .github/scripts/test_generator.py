@@ -422,12 +422,15 @@ class TestPromptGenerator:
             model_requirements.append("- When mocking responses, include ALL required fields from models to avoid MissingField errors")
         
         # Add stronger warning about model fields - especially for mashumaro or dataclasses
-        if 'mashumaro' in module_code or 'from_dict' in module_code or 'from_json' in module_code:
-            model_requirements.append("- CRITICAL: When creating mock data, ALL required fields MUST be included in the model dictionaries")
-            model_requirements.append("- Missing fields will cause MissingField exceptions from data serialization libraries")
-            model_requirements.append("- Common required fields that might be missed: change_uuid, code, supported_version")
-            model_requirements.append("- Include ALL model fields in mock data, even if they seem unimportant")
-        
+        # Add stronger warning about model fields - especially for serialization libraries 
+        if 'mashumaro' in module_code or 'from_dict' in module_code or 'from_json' in module_code or 'dataclass' in module_code:
+            model_requirements.append("- CRITICAL: When creating mock data, include ALL required fields in model dictionaries")
+            model_requirements.append("- Pay close attention to the actual model class definitions to identify required fields")
+            model_requirements.append("- Check existing test failures for 'MissingField' errors to identify missing required fields")
+            model_requirements.append("- Common fields that might be missed: id fields, count fields, timestamp fields, status fields")
+            model_requirements.append("- Always include numeric fields (even with zero values) and boolean fields in mock data")
+            model_requirements.append("- For mock responses that return lists of objects, ensure each object has all required fields")
+
         if 'json' in module_code:
             model_requirements.append("- For JSON responses, ensure the mock data matches the expected model structure completely")
         
@@ -463,15 +466,14 @@ Write clean, production-quality {test_framework} test code for this Python modul
 2. Include proper imports for ALL required packages and modules
 3. Import the module under test correctly: `from {import_path} import *`
 4. Focus on COMPLETE test coverage for functions with low coverage
-5. For mock responses, include ALL required fields in model dictionaries/JSON
-6. Never skip required fields in mock responses - check actual model structure
-7. Use appropriate fixtures and test setup for the testing framework
-8. When asserting values, ensure case sensitivity and exact type matching
-9. Create descriptive test function names that indicate what is being tested
-10. Include proper error handling and edge case testing
-11. If working with model classes, ensure validation checks pass
-12. IMPORTANT: DO NOT use pytest-mock fixtures (mocker). Use unittest.mock directly.
-13. Use class-level fixtures with self parameter instead of function-level fixtures when testing classes
+5. CRITICALLY IMPORTANT: For mock responses, examine model class definitions and include EVERY field
+6. When creating mock JSON data, include ALL fields from the corresponding model class
+7. Pay special attention to numeric fields (counts, metrics), timestamps, and status fields
+8. When mock data causes MissingField errors, add ALL fields mentioned in the error messages
+9. Use appropriate fixtures and test setup for the testing framework
+10. When asserting values, ensure case sensitivity and exact type matching
+11. Create comprehensive mock data that represents real-world responses
+12. Use unittest.mock directly instead of mocker fixtures
 
 Your response MUST be valid Python code that can be directly saved and executed with {test_framework}.
 """
