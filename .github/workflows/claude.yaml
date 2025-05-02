@@ -43,10 +43,7 @@ jobs:
         run: |
           # Install script test generator
           pip install requests dataclasses threading queue deque
-          
-          # Download script test generator (jika disimpan di repo terpisah)
-          # curl -O https://raw.githubusercontent.com/yourusername/claude-test-generator/main/test_generator.py
-          
+                  
           # Jalankan script test generator
           python -m test_generator --coverage-path coverage.xml --min-coverage 70.0
       
