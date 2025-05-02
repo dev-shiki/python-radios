@@ -1249,5 +1249,5 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main()) None  # Replace with appropriate assertions
+    sys.exit(main()) 
     
