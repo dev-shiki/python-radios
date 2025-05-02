@@ -415,7 +415,12 @@ class TestPromptGenerator:
         # Model requirements
         model_requirements = []
         classes, functions = CodeAnalyzer.extract_classes_and_methods(module_code)
-        
+        # Add guidance about constructor parameters
+        model_requirements.append("- IMPORTANT: Check class initialization requirements in __init__ methods")
+        model_requirements.append("- When creating instances in tests, provide ALL required constructor parameters")
+        model_requirements.append("- For client/API classes, common required parameters include: user_agent, api_key, base_url, timeout")
+        model_requirements.append("- Use reasonable default values for required parameters (e.g., 'test-agent' for user_agent)")
+                
         # Check for specific classes or patterns in code
         if any('Radio' in cls['name'] for cls in classes):
             model_requirements.append("- Ensure proper initialization of model classes with required fields")
@@ -462,7 +467,6 @@ Write clean, production-quality {test_framework} test code for this Python modul
 {model_requirements_text}
 
 ## STRICT GUIDELINES
-## STRICT GUIDELINES
 1. Write ONLY valid Python test code with no explanations or markdown
 2. Include proper imports for ALL required packages and modules
 3. Import the module under test correctly: `from {import_path} import *`
@@ -475,6 +479,9 @@ Write clean, production-quality {test_framework} test code for this Python modul
 10. When asserting values, ensure case sensitivity and exact type matching
 11. Create comprehensive mock data that represents real-world responses
 12. Use unittest.mock directly instead of mocker fixtures
+13. Inspect class __init__ methods to identify REQUIRED constructor parameters
+14. Always include required parameters when initializing objects in fixtures
+15. For client classes, provide appropriate default values for required parameters
 
 Your response MUST be valid Python code that can be directly saved and executed with {test_framework}.
 """
