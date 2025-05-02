@@ -415,27 +415,27 @@ class TestPromptGenerator:
         # Model requirements
         model_requirements = []
         classes, functions = CodeAnalyzer.extract_classes_and_methods(module_code)
-        # Add guidance about constructor parameters
-        model_requirements.append("- IMPORTANT: Check class initialization requirements in __init__ methods")
-        model_requirements.append("- When creating instances in tests, provide ALL required constructor parameters")
-        model_requirements.append("- For client/API classes, common required parameters include: user_agent, api_key, base_url, timeout")
-        model_requirements.append("- Use reasonable default values for required parameters (e.g., 'test-agent' for user_agent)")
-                
+        
+        # Add general guidance about constructor parameters and fixtures
+        model_requirements.append("- IMPORTANT: Always check class __init__ methods for required parameters")
+        model_requirements.append("- When creating test fixtures, provide all required constructor arguments")
+        model_requirements.append("- Use appropriate test values for required parameters (strings, integers, etc.)")
+        model_requirements.append("- For client/API classes, include standard parameters such as user_agent and timeout")
+        
         # Check for specific classes or patterns in code
         if any('Radio' in cls['name'] for cls in classes):
             model_requirements.append("- Ensure proper initialization of model classes with required fields")
             model_requirements.append("- When mocking responses, include ALL required fields from models to avoid MissingField errors")
         
         # Add stronger warning about model fields - especially for mashumaro or dataclasses
-        # Add stronger warning about model fields - especially for serialization libraries 
         if 'mashumaro' in module_code or 'from_dict' in module_code or 'from_json' in module_code or 'dataclass' in module_code:
             model_requirements.append("- CRITICAL: When creating mock data, include ALL required fields in model dictionaries")
-            model_requirements.append("- Pay close attention to the actual model class definitions to identify required fields")
-            model_requirements.append("- Check existing test failures for 'MissingField' errors to identify missing required fields")
-            model_requirements.append("- Common fields that might be missed: id fields, count fields, timestamp fields, status fields")
-            model_requirements.append("- Always include numeric fields (even with zero values) and boolean fields in mock data")
-            model_requirements.append("- For mock responses that return lists of objects, ensure each object has all required fields")
-
+            model_requirements.append("- Missing fields will cause MissingField exceptions from data serialization libraries")
+            model_requirements.append("- Common fields that might be missing: count fields, uuid fields, timestamp fields, status fields")
+            model_requirements.append("- For numeric fields, use 0 as a default value if unsure of the appropriate value")
+            model_requirements.append("- For boolean fields, include them with appropriate true/false values")
+            model_requirements.append("- For string fields, use descriptive test values that match expected formats")
+        
         if 'json' in module_code:
             model_requirements.append("- For JSON responses, ensure the mock data matches the expected model structure completely")
         
@@ -469,19 +469,20 @@ Write clean, production-quality {test_framework} test code for this Python modul
 ## STRICT GUIDELINES
 1. Write ONLY valid Python test code with no explanations or markdown
 2. Include proper imports for ALL required packages and modules
-3. Import the module under test correctly: `from {import_path} import *`
+3. Import the module under test correctly: from {import_path} import *
 4. Focus on COMPLETE test coverage for functions with low coverage
-5. CRITICALLY IMPORTANT: For mock responses, examine model class definitions and include EVERY field
-6. When creating mock JSON data, include ALL fields from the corresponding model class
-7. Pay special attention to numeric fields (counts, metrics), timestamps, and status fields
-8. When mock data causes MissingField errors, add ALL fields mentioned in the error messages
-9. Use appropriate fixtures and test setup for the testing framework
-10. When asserting values, ensure case sensitivity and exact type matching
-11. Create comprehensive mock data that represents real-world responses
-12. Use unittest.mock directly instead of mocker fixtures
-13. Inspect class __init__ methods to identify REQUIRED constructor parameters
-14. Always include required parameters when initializing objects in fixtures
-15. For client classes, provide appropriate default values for required parameters
+5. For mock responses, include ALL required fields in model dictionaries/JSON
+6. ALWAYS initialize objects with ALL required constructor parameters
+7. Review the class definition to identify mandatory initialization parameters
+8. Use sensible test values for constructor parameters (e.g., 'test-agent' for user agents)
+9. For fixtures that create class instances, ensure all required parameters are provided
+10. Use appropriate fixtures and test setup for the testing framework
+11. When asserting values, ensure case sensitivity and exact type matching
+12. Create descriptive test function names that indicate what is being tested
+13. Include proper error handling and edge case testing
+14. If working with model classes, ensure validation checks pass
+15. IMPORTANT: DO NOT use pytest-mock fixtures (mocker). Use unittest.mock directly.
+16. Use class-level fixtures with self parameter instead of function-level fixtures when testing classes
 
 Your response MUST be valid Python code that can be directly saved and executed with {test_framework}.
 """
