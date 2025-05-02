@@ -179,8 +179,8 @@ jobs:
             --site-url "https://github.com/${{ github.repository }}" \
             --site-name "${{ github.repository }}" \
             --rate-limit-rpm 5 \
-            --rate-limit-input-tpm 25000 \
-            --rate-limit-output-tpm 5000
+            --rate-limit-input-tpm 50000 \
+            --rate-limit-output-tpm 10000
       
       - name: 🧪 Run the generated tests
         run: |
