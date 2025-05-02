@@ -1,4 +1,4 @@
-name: Auto Generate Tests with AI
+name: Auto Generate Tests Claude
 
 # You can run this workflow manually from the Actions tab or schedule it
 on:
