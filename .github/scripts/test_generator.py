@@ -930,7 +930,7 @@ def main():
                         help='Test framework to use')
     
     parser.add_argument('--api-key', help='API key (default: from env OPENROUTER_API_KEY or OPENAI_API_KEY)')
-    parser.add_argument('--model', default='anthropic/claude-3.7-sonnet', 
+    parser.add_argument('--model', default='google/gemini-2.5-flash-preview', 
                         help='Model to use')
     parser.add_argument('--site-url', default='https://test-generator-app.com', 
                         help='URL for HTTP-Referer header (OpenRouter)')
