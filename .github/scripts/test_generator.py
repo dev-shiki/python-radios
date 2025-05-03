@@ -660,20 +660,6 @@ class TestGenerator:
         if requirements.get('needs_pytest', False) and "import pytest" not in test_code:
             imports_to_include.append("import pytest")
         
-        # Add AsyncMock for async code
-        if requirements.get('has_async', False) and "AsyncMock" not in test_code:
-            if "unittest.mock" in test_code:
-                test_code = test_code.replace(
-                    "from unittest.mock import",
-                    "from unittest.mock import AsyncMock, "
-                )
-            else:
-                imports_to_include.append("from unittest.mock import patch, MagicMock, AsyncMock")
-
-        # Add enum import if needed
-        if "STATIONCOUNT" in test_code and "import enum" not in test_code:
-            imports_to_include.append("import enum")
-                
         # Remove or replace pytest-mock references
         test_code = test_code.replace("import pytest_mock", "# No pytest-mock dependency")
         test_code = test_code.replace("pytest_plugins = ['pytest_mock']", "# No pytest-mock plugins needed")
@@ -707,88 +693,21 @@ class TestGenerator:
             ("patch" in test_code or "MagicMock" in test_code or "AsyncMock" in test_code)):
             imports_to_include.append("from unittest.mock import patch, MagicMock, AsyncMock")
         
-        # Fix async test issues
-        if requirements.get('has_async', False):
-            # Replace incorrect async with pattern
-            test_code = re.sub(
-                r'async with ([^(][^:]*):', 
-                r'async with (await \1):', 
-                test_code
-            )
-            
-            # Replace MagicMock with AsyncMock for awaited mocks
-            await_pattern = re.compile(r'await\s+([a-zA-Z_][a-zA-Z0-9_]*)')
-            for match in await_pattern.finditer(test_code):
-                var_name = match.group(1)
-                # Find where this variable is defined with MagicMock
-                mock_def_pattern = re.compile(fr'{var_name}\s*=\s*MagicMock\(')
-                for def_match in mock_def_pattern.finditer(test_code):
-                    # Replace with AsyncMock
-                    mock_def = def_match.group(0)
-                    new_def = mock_def.replace("MagicMock(", "AsyncMock(")
-                    test_code = test_code.replace(mock_def, new_def)
-            
-            # Fix attribute access on coroutines
-            coroutine_pattern = re.compile(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*\([^)]*\))\s*\n\s*([a-zA-Z_][a-zA-Z0-9_]*\.)')
-            for match in coroutine_pattern.finditer(test_code):
-                var_name = match.group(1)
-                func_call = match.group(2)
-                attribute_access = match.group(3)
-                
-                # Check if this is likely a coroutine that needs awaiting
-                if var_name in attribute_access and "async" in test_code[:match.start()]:
-                    # Replace with await
-                    test_code = test_code.replace(
-                        f"{var_name} = {func_call}",
-                        f"{var_name} = await {func_call}"
-                    )
-                    
-            # Ensure async tests have pytest.mark.asyncio decorator
-            if "@pytest.mark.asyncio" not in test_code:
-                test_code = re.sub(
-                    r'(async\s+def\s+test_[a-zA-Z0-9_]*)',
-                    r'@pytest.mark.asyncio\n\1',
-                    test_code
-                )
-        
-        # Fix session handling issues
-        session_pattern = re.compile(r'(mock_session|session_mock)\s*=\s*(?:AsyncMock|MagicMock)')
-        for match in session_pattern.finditer(test_code):
-            session_var = match.group(1)
-            # Add close method setup if missing and not already defined
-            close_setup = f"\n    {session_var}.close = AsyncMock()" if requirements.get('has_async', False) else f"\n    {session_var}.close = MagicMock()"
-            
-            # Only add if .close not already defined
-            if f"{session_var}.close" not in test_code:
-                # Insert after session mock creation
-                position = match.end()
-                # Find the end of the line
-                eol_pos = test_code.find('\n', position)
-                if eol_pos != -1:
-                    test_code = test_code[:eol_pos] + close_setup + test_code[eol_pos:]
-        
-        # Enhance model field detection and handling
+        # Check for missing field errors and add them as comments
         missing_field_patterns = [
             r'MissingField.*?Field\s+"(\w+)".*?missing\s+in\s+(\w+)',
             r'Field\s+"(\w+)"\s+of\s+type.*?missing\s+in\s+(\w+)',
             r'Field\s+"(\w+)"\s+.*?\s+is\s+missing'
         ]
-        
-        # Organize missing fields by model class
         missing_fields_by_class = {}
-        test_failures = []
-        
-        # Read test failures from log files
-        for root, _, files in os.walk('tests'):
-            for file in files:
-                if file.endswith('.log') or file.endswith('.txt'):
-                    try:
-                        with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
-                            content = f.read()
-                            test_failures.append(content)
-                            
-                            # Extract missing fields
-                            for pattern in missing_field_patterns:
+        # Read test failures if any
+        for pattern in missing_field_patterns:
+            for root, _, files in os.walk('tests'):
+                for file in files:
+                    if file.endswith('.log') or file.endswith('.txt'):
+                        try:
+                            with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
+                                content = f.read()
                                 for match in re.finditer(pattern, content):
                                     field = match.group(1)
                                     model_class = match.group(2) if len(match.groups()) > 1 else "Unknown"
@@ -798,107 +717,45 @@ class TestGenerator:
                                         
                                     if field not in missing_fields_by_class[model_class]:
                                         missing_fields_by_class[model_class].append(field)
-                    except:
-                        pass
+                        except:
+                            pass
         
-        # Convert list to string for easier checking
-        test_failures_str = "\n".join(test_failures)
-        
-        # Handle specific error patterns found in test failures
-        
-        # Fix missing enum values
-        if "AttributeError: STATIONCOUNT" in test_failures_str:
-            # Check if there's already an enum definition
-            if "class Order(" in test_code or "class OrderBy(" in test_code:
-                # Add stationcount to existing enum
-                enum_pattern = re.compile(r'class\s+Order(?:By)?\(.*?\):([^}]*)', re.DOTALL)
-                for match in enum_pattern.finditer(test_code):
-                    enum_body = match.group(1)
-                    if "STATIONCOUNT" not in enum_body:
-                        fixed_body = enum_body + "\n    STATIONCOUNT = \"stationcount\""
-                        test_code = test_code.replace(enum_body, fixed_body)
-            else:
-                # Add new enum with stationcount
-                enum_def = """
-# Add missing enum for order parameters
-class OrderBy(enum.Enum):
-    NAME = "name"
-    URL = "url"
-    HOMEPAGE = "homepage"
-    FAVICON = "favicon"
-    TAGS = "tags"
-    COUNTRY = "country"
-    LANGUAGE = "language"
-    VOTES = "votes"
-    CODEC = "codec"
-    BITRATE = "bitrate"
-    LASTCHECKOK = "lastcheckok"
-    LASTCHECKTIME = "lastchecktime"
-    CLICKTIMESTAMP = "clicktimestamp"
-    CLICKCOUNT = "clickcount"
-    CLICKTREND = "clicktrend"
-    RANDOM = "random"
-    STATIONCOUNT = "stationcount"
-"""
-            # Insert enum definition after imports
-            import_end = 0
-            for line in test_code.split('\n'):
-                if line.startswith('import ') or line.startswith('from '):
-                    import_end = test_code.find(line) + len(line)
-            
-            test_code = test_code[:import_end] + "\n\n" + enum_def + test_code[import_end:]
-        
-        # Add missing field warnings to test data
+        # Add missing field warnings to mock data
         if missing_fields_by_class:
-            # Insert model field requirements comment at the top 
-            model_reqs = "# REQUIRED MODEL FIELDS DETECTED FROM TEST FAILURES:\n"
-            for model_class, fields in missing_fields_by_class.items():
-                model_reqs += f"# {model_class}: {', '.join(fields)}\n"
-            
-            test_code = model_reqs + "\n" + test_code
-            
-            # Find mock data dictionaries and add required fields
-            mock_pattern = re.compile(r'(mock_\w+_data|test_data)\s*=\s*\{')
-            for match in mock_pattern.finditer(test_code):
-                position = match.end()
-                # Add comments for all missing fields after the opening brace
-                for model_class, fields in missing_fields_by_class.items():
-                    missing_fields_comment = f"\n    # REQUIRED FIELDS FOR {model_class}:\n"
-                    for field in fields:
-                        # Generate appropriate default value based on field name and class
-                        default_val = '"value"'  # default for string
-                        if field == "supported_version":
-                            default_val = "1"  # likely an integer
-                        elif field == "code":
-                            default_val = '"en"'  # language code
-                        
-                        missing_fields_comment += f'    "{field}": {default_val},  # Required\n'
-                    test_code = test_code[:position] + missing_fields_comment + test_code[position:]
-            
-            # Find model instantiations and add comments
+            # Find mock data instantiations
             for model_class, fields in missing_fields_by_class.items():
                 # Look for model creation patterns
-                model_pattern = re.compile(rf'{model_class}\(')
-                for match in model_pattern.finditer(test_code):
-                    position = match.start()
-                    # Find a good location to insert a comment
-                    insert_pos = test_code.rfind('\n', 0, position) + 1
-                    
-                    missing_fields_comment = f"# {model_class} requires fields: {', '.join(fields)}\n"
-                    # Insert comment before the model instantiation
-                    test_code = test_code[:insert_pos] + missing_fields_comment + test_code[insert_pos:]
+                model_patterns = [
+                    rf'{model_class}\s*\(', 
+                    rf'from_dict\(.*?{model_class}',
+                    rf'from_json\(.*?{model_class}'
+                ]
                 
-                # Also look for from_dict and from_json calls
-                convert_pattern = re.compile(rf'from_(dict|json)\([^)]*{model_class}')
-                for match in convert_pattern.finditer(test_code):
-                    position = match.start()
-                    # Find a good location to insert a comment
-                    insert_pos = test_code.rfind('\n', 0, position) + 1
+                for pattern in model_patterns:
+                    model_pattern = re.compile(pattern)
+                    for match in model_pattern.finditer(test_code):
+                        position = match.start()
+                        # Find a good location to insert a comment
+                        lines = test_code[:position].split('\n')
+                        insert_pos = test_code.rfind('\n', 0, position) + 1
+                        
+                        missing_fields_comment = "# REQUIRED FIELDS FOR {0}:\n".format(model_class)
+                        for field in fields:
+                            missing_fields_comment += f'# - "{field}"\n'
+                        
+                        # Insert comment before the model instantiation
+                        test_code = test_code[:insert_pos] + missing_fields_comment + test_code[insert_pos:]
+                
+                # Also look for mock data dictionaries
+                mock_pattern = re.compile(r'(mock_\w+_data|test_data)\s*=\s*\{')
+                for match in mock_pattern.finditer(test_code):
+                    position = match.end()
+                    missing_fields_comment = f"\n    # REQUIRED FIELDS FOR {model_class}:\n"
+                    for field in fields:
+                        missing_fields_comment += f'    # "{field}": "value",\n'
+                    # Insert comment after the opening brace
+                    test_code = test_code[:position] + missing_fields_comment + test_code[position:]
                     
-                    missing_fields_comment = f"# {model_class}.from_{match.group(1)}() requires fields: {', '.join(fields)}\n"
-                    # Insert comment before the from_dict/from_json call
-                    test_code = test_code[:insert_pos] + missing_fields_comment + test_code[insert_pos:]
-        
         # Add import for the module under test if not present
         module_import = f"from {import_path} import *"
         if module_import not in test_code:
@@ -907,6 +764,18 @@ class OrderBy(enum.Enum):
         # Add imports at the beginning if needed
         if imports_to_include:
             test_code = '\n'.join(imports_to_include) + '\n\n' + test_code
+        
+        # Ensure async functions have proper decorators
+        if requirements.get('has_async', False) and "async def test_" in test_code and "@pytest.mark.asyncio" not in test_code:
+            lines = test_code.split('\n')
+            processed_lines = []
+            
+            for i, line in enumerate(lines):
+                if line.strip().startswith("async def test_") and not lines[i-1].strip().startswith("@pytest.mark.asyncio"):
+                    processed_lines.append("@pytest.mark.asyncio")
+                processed_lines.append(line)
+            
+            test_code = '\n'.join(processed_lines)
         
         # Add test class if using instance fixtures but no test class
         if "def " in test_code and "(self)" in test_code and not "class Test" in test_code:
