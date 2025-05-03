@@ -389,6 +389,19 @@ TEST GENERATION REQUIREMENTS:
 20. Verify error cases with proper exception context management
 21. CAREFULLY examine the project structure and produce CORRECT import paths that match the actual module organization
 
+MASHUMARO DATA SERIALIZATION REQUIREMENTS:
+1. When mocking mashumaro models, ALWAYS include ALL fields defined in the dataclass
+2. If a field doesn't have a default value in the dataclass, it MUST be included in mocks
+3. For ANY Station model, ALWAYS include "bitrate" field as an integer (e.g., 128)
+4. For ANY Country or Tag model, ALWAYS include "station_count" field as a string (e.g., "42")
+5. For ANY Language model, ALWAYS include "code" field (can be null for Optional fields, but must be specified)
+6. For ANY Stats model, ALWAYS include "supported_version" field as an integer (e.g., 1)
+7. For mashumaro model responses, check the actual model definition and include ALL fields
+8. When a field is missing in a mock, it results in MissingField exceptions such as:
+   - mashumaro.exceptions.MissingField: Field "bitrate" of type int is missing in Station instance
+   - mashumaro.exceptions.MissingField: Field "station_count" of type str is missing in Country instance
+9. Make extra sure to include ALL fields of the correct types in model instances
+
 ASYNC MOCKING RULES (CRITICAL):
 
 1. ALWAYS use AsyncMock from unittest.mock for mocking asynchronous methods
@@ -436,6 +449,8 @@ CRITICAL PROBLEMS TO AVOID:
 8. NEVER invent module paths that don't exist (e.g., don't treat a module as a package)
 9. DO NOT create nested import paths unless they actually exist in the project
 10. DO verify that all imports resolve correctly for the project structure
+11. NEVER leave out required model fields - include every single field defined in the model class
+12. Pay special attention to include specific fields : "bitrate", "station_count", "code", "supported_version"
 
 IMPORT STRUCTURE RULES:
 1. Examine the actual module structure of the project before creating imports
@@ -728,7 +743,7 @@ RESULT FORMAT (just the code, no explanations):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
                 existing_test_names.add(node.name)
         
-                    # Extract imports from generated tests that don't exist in existing tests
+        # Extract imports from generated tests that don't exist in existing tests
         existing_imports = set()
         for node in ast.walk(existing_ast):
             if isinstance(node, ast.Import):
@@ -876,6 +891,14 @@ ERROR MESSAGE:
 
 ERROR CATEGORY: {error_category}
 
+MASHUMARO DATA MODEL ERRORS DETECTED: Please ensure all required fields for all models are included. Common missing fields are:
+- Field "bitrate" of type int in Station instances
+- Field "station_count" of type str in Country and Tag instances
+- Field "code" of type Optional[str] in Language instances
+- Field "supported_version" of type int in Stats instances
+
+When creating mock responses for these models, EVERY field must be provided with the correct type.
+
 Please analyze the error message and fix the issues in the test code. Provide only the corrected code without explanations.
 
 CORRECTED CODE:
@@ -905,104 +928,6 @@ CORRECTED CODE:
             return "TIMEOUT_ERROR"
         else:
             return "GENERAL_ERROR"
-
-    def _get_error_guidance(self, error_category: str) -> str:
-        """Get targeted guidance for fixing specific error categories."""
-        guidance = {
-
-            "MISSING_FIELD_ERROR": """
-    When mocking dataclass responses:
-    1. Ensure ALL required fields are included in the mock response
-    2. Check field types and ensure they match the expected types
-    3. For nested objects, make sure all their required fields are included too
-    4. Example: 
-    - Instead of: mock_request.return_value = '{"name": "Example"}'
-    - Use: mock_request.return_value = '{"name": "Example", "id": 123, "required_field": "value"}'
-            """,
-            
-            "TIMEOUT_ERROR": """
-    For timeout error tests:
-    1. When using AsyncMock.side_effect = TimeoutError(), the exception needs to be caught
-    2. Make sure to patch at the right level (the actual function that raises TimeoutError)
-    3. Use try/except in the test if needed to handle the propagation
-    4. Example:
-    - session_mock.request.side_effect = asyncio.TimeoutError()
-    - Then test the function that uses session.request
-            """,
-            
-            "EXPECTED_EXCEPTION_ERROR": """
-    For tests expecting exceptions:
-    1. Make sure the conditions that trigger the exception are properly set up
-    2. Check that you're testing the right function call
-    3. Verify that the right exception type is being raised
-    4. For content-type related errors, mock the headers correctly
-    5. Example:
-    - response_mock.headers = {"Content-Type": "text/plain"}  # Not JSON
-    - Should raise error when expecting JSON
-            """,
-            
-            "JSON_DECODE_ERROR": """
-    When mocking JSON responses:
-    1. Ensure the mock returns a valid JSON string or bytes
-    2. For orjson library, the input must be bytes, bytearray, memoryview, or str
-    3. Replace: mock_response.return_value = None
-    With: mock_response.return_value = '{"key": "value"}'
-    4. Make sure the JSON string is properly formatted
-            """,
-            
-            "MOCK_ASSERTION_ERROR": """
-    For mock assertion issues:
-    1. Ensure the mock is called with exactly the expected arguments
-    2. Check the method signature to verify all required parameters
-    3. For positional vs. keyword args, ensure they match the expected call pattern
-    4. Use mock.assert_called_once_with() with the exact expected arguments
-            """,
-            
-            "PATCH_PATH_ERROR": """
-    For patching errors:
-    1. Patch at the exact location where the module is imported, not where it's defined
-    2. Use the full import path as used in the module under test
-    3. Replace: @patch('module')
-    With: @patch('package.module.Class.method')
-    4. For class methods, consider using @patch.object(Class, 'method')
-            """,
-            
-            "ATTRIBUTE_ERROR": """
-    For NoneType attribute errors:
-    1. Ensure objects are properly initialized before methods are called
-    2. For nullable attributes, check they are set before use
-    3. Provide mock objects for all dependencies accessed in the code
-    4. Initialize client sessions or connections before testing methods that use them
-            """,
-            
-            "ASYNC_MOCK_ERROR": """
-    For async mocking issues:
-    1. Use AsyncMock for mocking async functions
-    2. Always ensure mocked async functions return awaitable objects
-    3. Replace: mock_func = MagicMock()
-    With: mock_func = AsyncMock(return_value=expected_result)
-    4. For side effects: mock_func.side_effect = AsyncMock(side_effect=Exception())
-            """,
-            
-            "FIXTURE_USAGE_ERROR": """
-    For fixture usage errors:
-    1. NEVER call fixtures directly in test code
-    2. ALWAYS pass fixtures as parameters to test functions
-    3. Replace: result = test_function(fixture())
-    With: result = test_function(fixture)
-    4. Ensure all fixtures used in a test are included in the test function parameters
-            """,
-            
-            "GENERAL_ERROR": """
-    General troubleshooting:
-    1. Check import statements to ensure all required modules are imported
-    2. Verify type hints and function signatures match the expected usage
-    3. Ensure all variables are defined before they are used
-    4. Review the module structure and dependencies to ensure correct mocking
-            """
-        }
-    
-        return guidance.get(error_category, guidance["GENERAL_ERROR"])
     
     def write_tests(self) -> None:
         """Generate tests, validate them, revise if needed, and write to the test file."""
