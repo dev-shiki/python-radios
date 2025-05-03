@@ -377,10 +377,11 @@ class TestPromptGenerator:
         import_path: str,
         coverage_data: Dict[str, Any],
         requirements: Dict[str, bool],
+        test_failures: Dict[str, List[str]] = None,
         test_framework: str = "pytest"
     ) -> str:
         """
-        Create detailed user prompt for AI based on code analysis
+        Create detailed user prompt for AI based on code analysis and test failures
         """
         # Get module name for imports
         module_name = os.path.basename(module_path)
@@ -401,6 +402,35 @@ class TestPromptGenerator:
         else:
             low_coverage_info = "All functions have partial coverage that needs improvement."
         
+        # Parse and extract missing field information from test failures
+        missing_fields_by_model = {}
+        enum_errors = []
+        
+        if test_failures:
+            for test_name, errors in test_failures.items():
+                for error in errors:
+                    # Extract missing field information from mashumaro exceptions
+                    missing_field_match = re.search(r'Field\s+"([^"]+)"\s+of\s+type\s+([^"]+)\s+is\s+missing\s+in\s+(\w+)', error)
+                    if missing_field_match:
+                        field = missing_field_match.group(1)
+                        field_type = missing_field_match.group(2)
+                        model = missing_field_match.group(3)
+                        
+                        if model not in missing_fields_by_model:
+                            missing_fields_by_model[model] = []
+                        
+                        missing_fields_by_model[model].append({
+                            "name": field,
+                            "type": field_type
+                        })
+                    
+                    # Extract enum attribute errors
+                    enum_error_match = re.search(r'AttributeError:\s+(\w+)', error)
+                    if enum_error_match and "STATIONCOUNT" in error:
+                        enum_value = enum_error_match.group(1)
+                        if enum_value not in enum_errors:
+                            enum_errors.append(enum_value)
+        
         # Create dependency guidance
         dependency_guidance = []
         if requirements.get('needs_pytest_asyncio', False):
@@ -412,47 +442,103 @@ class TestPromptGenerator:
         
         dependency_guidance_text = "\n".join(dependency_guidance) if dependency_guidance else "No special dependencies required."
         
-        # Model requirements
+        # Create enhanced model requirements sections with specific guidance
         model_requirements = []
-        classes, functions = CodeAnalyzer.extract_classes_and_methods(module_code)
+        mashumaro_detected = 'mashumaro' in module_code
+        dataclass_detected = 'dataclass' in module_code or '@dataclass' in module_code
+        enum_detected = 'enum.Enum' in module_code or 'from enum import' in module_code
         
-        # Check for specific classes or patterns in code
-        if any('Radio' in cls['name'] for cls in classes):
-            model_requirements.append("- Ensure proper initialization of model classes with required fields")
-            model_requirements.append("- When mocking responses, include ALL required fields from models to avoid MissingField errors")
+        # Add general model requirements
+        if mashumaro_detected or dataclass_detected:
+            model_requirements.append("- CRITICAL: Model classes require ALL fields to be specified in tests")
+            model_requirements.append("- Missing required fields will cause MashumaroException failures")
+            model_requirements.append("- When creating mock objects and test data, include EVERY required field")
+            model_requirements.append("- When using from_dict() or from_json(), ensure ALL required fields are included")
         
-        # Add stronger warning about model fields - especially for mashumaro or dataclasses
-        if 'mashumaro' in module_code or 'from_dict' in module_code or 'from_json' in module_code:
-            model_requirements.append("- CRITICAL: When creating mock data, ALL required fields MUST be included in the model dictionaries")
-            model_requirements.append("- Missing fields will cause MissingField exceptions from data serialization libraries")
-            model_requirements.append("- Common required fields that might be missed: change_uuid, code, supported_version")
-            model_requirements.append("- Include ALL model fields in mock data, even if they seem unimportant")
-            model_requirements.append("- Model fields must match exact expected types (e.g., int for int fields, str for str fields)")
-            model_requirements.append("- For all from_dict() or from_json() calls, ensure all required fields are included")
+        # Add specific missing field guidance based on test failures
+        if missing_fields_by_model:
+            model_requirements.append("\nMISSING FIELDS DETECTED IN TESTS (must be included in ALL mock data):")
+            for model, fields in missing_fields_by_model.items():
+                model_requirements.append(f"- {model} class requires these fields:")
+                for field in fields:
+                    model_requirements.append(f"  * \"{field['name']}\" (type: {field['type']})")
+                    
+                    # Add specific guidance for datetime fields
+                    if "datetime" in field['type'].lower():
+                        model_requirements.append(f"    - Use datetime objects or ISO strings for {field['name']}")
+                    # Add specific guidance for optional fields
+                    if "Optional" in field['type']:
+                        model_requirements.append(f"    - {field['name']} can be None but must be explicitly included")
         
-        if 'json' in module_code:
-            model_requirements.append("- For JSON responses, ensure the mock data matches the expected model structure completely")
+        # Add enum-specific guidance
+        if enum_detected or enum_errors:
+            model_requirements.append("\nENUM REQUIREMENTS:")
+            model_requirements.append("- Use exact Enum member names as defined in the source code")
+            
+            if enum_errors:
+                model_requirements.append("- MISSING ENUM VALUES detected in tests:")
+                for enum_val in enum_errors:
+                    model_requirements.append(f"  * Include \"{enum_val}\" in the enum definition")
+                model_requirements.append("- When testing with OrderBy or similar enums, ensure STATIONCOUNT is defined")
         
-        if 'dataclass' in module_code:
-            model_requirements.append("- All dataclass fields without defaults must be provided in tests")
-            model_requirements.append("- Check the dataclass definition to identify required vs optional fields")
+        # Add detailed mashumaro-specific guidance
+        if mashumaro_detected:
+            model_requirements.append("\nMASHUMARO-SPECIFIC REQUIREMENTS:")
+            model_requirements.append("- All mashumaro models require EXACT field types as specified")
+            model_requirements.append("- For numeric fields, use actual numbers (not strings)")
+            model_requirements.append("- For datetime fields, use proper datetime objects or ISO format strings")
+            model_requirements.append("- Fields marked Optional still need to be included (can be set to None)")
+            model_requirements.append("- Common required fields often include: id, name, code, supported_version")
+            model_requirements.append("- RadioBrowser models often require: click_timestamp, stationcount, and code fields")
         
-        if 'enum.Enum' in module_code or 'from enum import' in module_code:
-            model_requirements.append("- When testing code with Enums, always use the exact Enum member names from the code")
-            model_requirements.append("- Include the full Enum definition in test code if using mock objects with Enum fields")
+        model_requirements_text = "\n".join(model_requirements)
         
-        if 'async ' in module_code:
-            model_requirements.append("- For async code: use AsyncMock() instead of MagicMock() for mocks that will be awaited")
-            model_requirements.append("- Always 'await' coroutines before accessing their attributes or using as context managers")
-            model_requirements.append("- Use 'async with (await coroutine_func()):' pattern for async context managers")
+        # Add specific examples of model creation based on detected missing fields
+        model_examples = []
+        if missing_fields_by_model:
+            model_examples.append("\n## MODEL MOCK DATA EXAMPLES")
+            
+            for model, fields in missing_fields_by_model.items():
+                model_examples.append(f"\n### {model} Mock Example:")
+                model_examples.append("```python")
+                
+                if mashumaro_detected:
+                    # Direct model instantiation example
+                    model_examples.append(f"{model_name}_data = {{")
+                    for field in fields:
+                        field_name = field['name']
+                        field_type = field['type']
+                        
+                        # Provide appropriate example values based on field type
+                        if "int" in field_type.lower():
+                            model_examples.append(f"    \"{field_name}\": 1,")
+                        elif "str" in field_type.lower():
+                            model_examples.append(f"    \"{field_name}\": \"example\",")
+                        elif "datetime" in field_type.lower():
+                            model_examples.append(f"    \"{field_name}\": \"2023-01-01T00:00:00Z\",")
+                        elif "bool" in field_type.lower():
+                            model_examples.append(f"    \"{field_name}\": True,")
+                        elif "Optional" in field_type:
+                            model_examples.append(f"    \"{field_name}\": None,  # Optional but must be included")
+                        else:
+                            model_examples.append(f"    \"{field_name}\": \"appropriate_value_for_{field_type}\",")
+                    
+                    model_examples.append("}")
+                    model_examples.append(f"{model.lower()}_instance = {model}.from_dict({model_name}_data)")
+                
+                model_examples.append("```")
         
-        # Add more specific AsyncClientSession handling if detected
-        if 'ClientSession' in module_code and 'aiohttp' in module_code:
-            model_requirements.append("- For aiohttp ClientSession mocks: explicitly mock the 'close' method")
-            model_requirements.append("- For session objects: session.request() returns a coroutine - use AsyncMock")
+        # Create examples for enum definitions if needed
+        if enum_errors:
+            model_examples.append("\n### Enum Definition Example:")
+            model_examples.append("```python")
+            model_examples.append("class OrderBy(enum.Enum):")
+            model_examples.append("    NAME = \"name\"")
+            model_examples.append("    STATIONCOUNT = \"stationcount\"  # Include this missing value")
+            model_examples.append("    # ... other enum values ...")
+            model_examples.append("```")
         
-        model_requirements_text = "\n".join(model_requirements) if model_requirements else "No special model requirements detected."
-        
+        model_examples_text = "\n".join(model_examples)
         # Create the full prompt
         prompt = f"""
 # TEST GENERATION ASSIGNMENT
@@ -477,6 +563,7 @@ Write clean, production-quality {test_framework} test code for this Python modul
 
 ## MODEL REQUIREMENTS
 {model_requirements_text}
+{model_examples_text}
 
 ## STRICT GUIDELINES
 1. Write ONLY valid Python test code with no explanations or markdown
