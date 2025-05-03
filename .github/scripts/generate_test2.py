@@ -33,7 +33,7 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # Configure the AI model to use
-AI_MODEL = "google/gemini-2.0-flash-001"
+AI_MODEL = "google/gemini-2.5-flash-preview"
 
 class TestGenerator:
     """Generate tests for Python modules using AI."""
