@@ -377,11 +377,10 @@ class TestPromptGenerator:
         import_path: str,
         coverage_data: Dict[str, Any],
         requirements: Dict[str, bool],
-        test_failures: Dict[str, List[str]] = None,
         test_framework: str = "pytest"
     ) -> str:
         """
-        Create detailed user prompt for AI based on code analysis and test failures
+        Create detailed user prompt for AI based on code analysis
         """
         # Get module name for imports
         module_name = os.path.basename(module_path)
@@ -406,30 +405,59 @@ class TestPromptGenerator:
         missing_fields_by_model = {}
         enum_errors = []
         
-        if test_failures:
-            for test_name, errors in test_failures.items():
-                for error in errors:
-                    # Extract missing field information from mashumaro exceptions
-                    missing_field_match = re.search(r'Field\s+"([^"]+)"\s+of\s+type\s+([^"]+)\s+is\s+missing\s+in\s+(\w+)', error)
-                    if missing_field_match:
-                        field = missing_field_match.group(1)
-                        field_type = missing_field_match.group(2)
-                        model = missing_field_match.group(3)
-                        
-                        if model not in missing_fields_by_model:
-                            missing_fields_by_model[model] = []
-                        
-                        missing_fields_by_model[model].append({
-                            "name": field,
-                            "type": field_type
-                        })
-                    
-                    # Extract enum attribute errors
-                    enum_error_match = re.search(r'AttributeError:\s+(\w+)', error)
-                    if enum_error_match and "STATIONCOUNT" in error:
-                        enum_value = enum_error_match.group(1)
-                        if enum_value not in enum_errors:
-                            enum_errors.append(enum_value)
+        # Analyze existing test failures from log files
+        for root, _, files in os.walk('tests'):
+            for file in files:
+                if file.endswith('.log') or file.endswith('.txt'):
+                    try:
+                        with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
+                            content = f.read()
+                            
+                            # Extract missing field information
+                            for missing_field_match in re.finditer(r'Field\s+"([^"]+)"\s+of\s+type\s+([^"]+)\s+is\s+missing\s+in\s+(\w+)', content):
+                                field = missing_field_match.group(1)
+                                field_type = missing_field_match.group(2)
+                                model = missing_field_match.group(3)
+                                
+                                if model not in missing_fields_by_model:
+                                    missing_fields_by_model[model] = []
+                                
+                                # Check if this field is already recorded
+                                if not any(f['name'] == field for f in missing_fields_by_model[model]):
+                                    missing_fields_by_model[model].append({
+                                        "name": field,
+                                        "type": field_type
+                                    })
+                            
+                            # Extract enum attribute errors
+                            for enum_error_match in re.finditer(r'AttributeError:\s+(\w+)', content):
+                                enum_value = enum_error_match.group(1)
+                                if enum_value not in enum_errors and enum_value == "STATIONCOUNT":
+                                    enum_errors.append(enum_value)
+                    except:
+                        pass
+        
+        # Add specific known issues from the test error messages if they're not found
+        if not any(model == "Stats" and field["name"] == "supported_version" for model, fields in missing_fields_by_model.items() 
+                for field in fields):
+            if "Stats" not in missing_fields_by_model:
+                missing_fields_by_model["Stats"] = []
+            missing_fields_by_model["Stats"].append({"name": "supported_version", "type": "int"})
+        
+        if not any(model == "Language" and field["name"] == "code" for model, fields in missing_fields_by_model.items() 
+                for field in fields):
+            if "Language" not in missing_fields_by_model:
+                missing_fields_by_model["Language"] = []
+            missing_fields_by_model["Language"].append({"name": "code", "type": "Optional[str]"})
+        
+        if not any(model == "Station" and field["name"] == "click_timestamp" for model, fields in missing_fields_by_model.items() 
+                for field in fields):
+            if "Station" not in missing_fields_by_model:
+                missing_fields_by_model["Station"] = []
+            missing_fields_by_model["Station"].append({"name": "click_timestamp", "type": "Optional[datetime]"})
+        
+        if "STATIONCOUNT" not in enum_errors:
+            enum_errors.append("STATIONCOUNT")
         
         # Create dependency guidance
         dependency_guidance = []
@@ -493,6 +521,53 @@ class TestPromptGenerator:
         
         model_requirements_text = "\n".join(model_requirements)
         
+        # Add specific examples of model creation based on detected missing fields
+        model_examples = []
+        if missing_fields_by_model:
+            model_examples.append("\n## MODEL MOCK DATA EXAMPLES")
+            
+            for model, fields in missing_fields_by_model.items():
+                model_examples.append(f"\n### {model} Mock Example:")
+                model_examples.append("```python")
+                
+                if mashumaro_detected:
+                    # Direct model instantiation example
+                    model_examples.append(f"{model.lower()}_data = {{")
+                    for field in fields:
+                        field_name = field['name']
+                        field_type = field['type']
+                        
+                        # Provide appropriate example values based on field type
+                        if "int" in field_type.lower():
+                            model_examples.append(f"    \"{field_name}\": 1,")
+                        elif "str" in field_type.lower():
+                            model_examples.append(f"    \"{field_name}\": \"example\",")
+                        elif "datetime" in field_type.lower():
+                            model_examples.append(f"    \"{field_name}\": \"2023-01-01T00:00:00Z\",")
+                        elif "bool" in field_type.lower():
+                            model_examples.append(f"    \"{field_name}\": True,")
+                        elif "Optional" in field_type:
+                            model_examples.append(f"    \"{field_name}\": None,  # Optional but must be included")
+                        else:
+                            model_examples.append(f"    \"{field_name}\": \"appropriate_value_for_{field_type}\",")
+                    
+                    model_examples.append("}")
+                    model_examples.append(f"{model.lower()}_instance = {model}.from_dict({model.lower()}_data)")
+                
+                model_examples.append("```")
+        
+        # Create examples for enum definitions if needed
+        if enum_errors:
+            model_examples.append("\n### Enum Definition Example:")
+            model_examples.append("```python")
+            model_examples.append("class OrderBy(enum.Enum):")
+            model_examples.append("    NAME = \"name\"")
+            model_examples.append("    STATIONCOUNT = \"stationcount\"  # Include this missing value")
+            model_examples.append("    # ... other enum values ...")
+            model_examples.append("```")
+        
+        model_examples_text = "\n".join(model_examples)
+        
      
         # Create the full prompt
         prompt = f"""
@@ -518,6 +593,7 @@ Write clean, production-quality {test_framework} test code for this Python modul
 
 ## MODEL REQUIREMENTS
 {model_requirements_text}
+{model_examples_text}
 
 ## STRICT GUIDELINES
 1. Write ONLY valid Python test code with no explanations or markdown
