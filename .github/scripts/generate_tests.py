@@ -29,11 +29,11 @@ import pytest
 from coverage import Coverage
 
 # Configure OpenAI client for SambaNova
-openai.api_key = os.environ.get("OPENROUTER_API_KEY")
-openai.base_url = "https://openrouter.ai/api/v1"
+openai.api_key = os.environ.get("SAMBANOVA_API_KEY")
+openai.base_url = "https://api.sambanova.ai/v1"
 
 # Configure the AI model to use
-AI_MODEL = "google/gemini-2.0-flash-001"
+AI_MODEL = "Meta-Llama-3.3-70B-Instruct"
 
 class TestGenerator:
     """Generate tests for Python modules using AI."""
@@ -659,8 +659,8 @@ RESULT FORMAT (just the code, no explanations):
         """Call the SambaNova API with the prompt and return the generated code."""
         try:
             client = openai.OpenAI(
-                api_key=os.environ.get("OPENROUTER_API_KEY"),
-                base_url="https://openrouter.ai/api/v1",
+                api_key=os.environ.get("SAMBANOVA_API_KEY"),
+                base_url="https://api.sambanova.ai/v1",
             )
             
             response = client.chat.completions.create(
