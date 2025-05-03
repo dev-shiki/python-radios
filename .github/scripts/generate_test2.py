@@ -695,7 +695,7 @@ RESULT FORMAT (just the code, no explanations):
                 ],
                 "temperature": 0.1,  # Lower temperature for more deterministic code generation
                 "top_p": 0.1,
-                "max_tokens": 7500,
+                "max_tokens": 6000,
             }
             
             response = requests.post(
