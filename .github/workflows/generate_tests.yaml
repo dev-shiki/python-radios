@@ -20,7 +20,7 @@ on:
 
 env:
   DEFAULT_PYTHON: "3.11"
-  SAMBANOVA_API_KEY: ${{ secrets.SAMBANOVA_API_KEY }}
+  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
 jobs:
   find-modules:
@@ -167,7 +167,7 @@ jobs:
         run: poetry run pytest --cov=${{ matrix.module }} --cov-report=xml
       
       - name: 🤖 Generate tests with AI
-        run: poetry run python .github/scripts/generate_tests.py --module ${{ matrix.module }} --coverage-threshold ${{ github.event.inputs.coverage_threshold }}
+        run: poetry run python .github/scripts/generate_tests2.py --module ${{ matrix.module }} --coverage-threshold ${{ github.event.inputs.coverage_threshold }}
       
       - name: 🧪 Run the generated tests
         run: |
