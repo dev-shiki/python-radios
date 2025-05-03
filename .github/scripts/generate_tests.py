@@ -659,8 +659,8 @@ RESULT FORMAT (just the code, no explanations):
         """Call the SambaNova API with the prompt and return the generated code."""
         try:
             client = openai.OpenAI(
-                api_key=os.environ.get("SAMBANOVA_API_KEY"),
-                base_url="https://api.sambanova.ai/v1",
+                api_key=os.environ.get("OPENROUTER_API_KEY"),
+                base_url="https://openrouter.ai/api/v1",
             )
             
             response = client.chat.completions.create(
