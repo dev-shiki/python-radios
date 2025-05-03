@@ -493,52 +493,7 @@ class TestPromptGenerator:
         
         model_requirements_text = "\n".join(model_requirements)
         
-        # Add specific examples of model creation based on detected missing fields
-        model_examples = []
-        if missing_fields_by_model:
-            model_examples.append("\n## MODEL MOCK DATA EXAMPLES")
-            
-            for model, fields in missing_fields_by_model.items():
-                model_examples.append(f"\n### {model} Mock Example:")
-                model_examples.append("```python")
-                
-                if mashumaro_detected:
-                    # Direct model instantiation example
-                    model_examples.append(f"{model_name}_data = {{")
-                    for field in fields:
-                        field_name = field['name']
-                        field_type = field['type']
-                        
-                        # Provide appropriate example values based on field type
-                        if "int" in field_type.lower():
-                            model_examples.append(f"    \"{field_name}\": 1,")
-                        elif "str" in field_type.lower():
-                            model_examples.append(f"    \"{field_name}\": \"example\",")
-                        elif "datetime" in field_type.lower():
-                            model_examples.append(f"    \"{field_name}\": \"2023-01-01T00:00:00Z\",")
-                        elif "bool" in field_type.lower():
-                            model_examples.append(f"    \"{field_name}\": True,")
-                        elif "Optional" in field_type:
-                            model_examples.append(f"    \"{field_name}\": None,  # Optional but must be included")
-                        else:
-                            model_examples.append(f"    \"{field_name}\": \"appropriate_value_for_{field_type}\",")
-                    
-                    model_examples.append("}")
-                    model_examples.append(f"{model.lower()}_instance = {model}.from_dict({model_name}_data)")
-                
-                model_examples.append("```")
-        
-        # Create examples for enum definitions if needed
-        if enum_errors:
-            model_examples.append("\n### Enum Definition Example:")
-            model_examples.append("```python")
-            model_examples.append("class OrderBy(enum.Enum):")
-            model_examples.append("    NAME = \"name\"")
-            model_examples.append("    STATIONCOUNT = \"stationcount\"  # Include this missing value")
-            model_examples.append("    # ... other enum values ...")
-            model_examples.append("```")
-        
-        model_examples_text = "\n".join(model_examples)
+     
         # Create the full prompt
         prompt = f"""
 # TEST GENERATION ASSIGNMENT
@@ -563,7 +518,6 @@ Write clean, production-quality {test_framework} test code for this Python modul
 
 ## MODEL REQUIREMENTS
 {model_requirements_text}
-{model_examples_text}
 
 ## STRICT GUIDELINES
 1. Write ONLY valid Python test code with no explanations or markdown
