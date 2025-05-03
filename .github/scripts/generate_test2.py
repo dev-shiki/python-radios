@@ -33,7 +33,7 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # Configure the AI model to use
-AI_MODEL = "google/gemini-2.5-flash-preview"
+AI_MODEL = "google/gemini-2.0-flash-001"
 
 class TestGenerator:
     """Generate tests for Python modules using AI."""
@@ -695,7 +695,7 @@ RESULT FORMAT (just the code, no explanations):
                 ],
                 "temperature": 0.1,  # Lower temperature for more deterministic code generation
                 "top_p": 0.1,
-                "max_tokens": 6000,
+                "max_tokens": 4000,
             }
             
             response = requests.post(
