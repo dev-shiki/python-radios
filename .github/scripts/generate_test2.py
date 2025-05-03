@@ -389,6 +389,19 @@ TEST GENERATION REQUIREMENTS:
 20. Verify error cases with proper exception context management
 21. CAREFULLY examine the project structure and produce CORRECT import paths that match the actual module organization
 
+MASHUMARO DATA SERIALIZATION REQUIREMENTS:
+1. When mocking mashumaro models, ALWAYS include ALL fields defined in the dataclass
+2. If a field doesn't have a default value in the dataclass, it MUST be included in mocks
+3. For ANY Station model, ALWAYS include "bitrate" field as an integer (e.g., 128)
+4. For ANY Country or Tag model, ALWAYS include "station_count" field as a string (e.g., "42")
+5. For ANY Language model, ALWAYS include "code" field (can be null for Optional fields, but must be specified)
+6. For ANY Stats model, ALWAYS include "supported_version" field as an integer (e.g., 1)
+7. For mashumaro model responses, check the actual model definition and include ALL fields
+8. When a field is missing in a mock, it results in MissingField exceptions such as:
+   - mashumaro.exceptions.MissingField: Field "bitrate" of type int is missing in Station instance
+   - mashumaro.exceptions.MissingField: Field "station_count" of type str is missing in Country instance
+9. Make extra sure to include ALL fields of the correct types in model instances
+
 ASYNC MOCKING RULES (CRITICAL):
 
 1. ALWAYS use AsyncMock from unittest.mock for mocking asynchronous methods
