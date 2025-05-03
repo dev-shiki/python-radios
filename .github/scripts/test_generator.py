@@ -759,172 +759,85 @@ class TestGenerator:
         """
         Post-process generated test code to fix common issues
         """
-        # Check if code seems invalid (conversational)
-        if (not test_code.strip().startswith("import ") and 
-            not test_code.strip().startswith("from ") and 
-            not test_code.strip().startswith("def ") and
-            not test_code.strip().startswith("class ") and
-            not test_code.strip().startswith("#") and
-            "would you like" in test_code.lower() or 
-            "i understand" in test_code.lower()):
-            logger.warning("Detected conversational text in output, generating fallback test")
-            return self._generate_fallback_test(module_path, import_path)
+        # Basic handling of model fields for serialization libraries
+        serialization_patterns = ['from_dict', 'from_json', 'MissingField']
+        needs_model_fields_warning = any(pattern in test_code for pattern in serialization_patterns)
+        
+        if needs_model_fields_warning:
+            # Find mock data dictionaries
+            mock_pattern = re.compile(r'(mock_\w+_data|test_data)\s*=\s*\{')
+            for match in mock_pattern.finditer(test_code):
+                position = match.end()
+                warning = "\n    # IMPORTANT: Include ALL required fields in mock data\n"
+                warning += "    # Common required fields: id, name, code, version, timestamp\n"
+                # Insert warning after the opening brace
+                test_code = test_code[:position] + warning + test_code[position:]
+        
+        # Fix enum-related issues
+        if "AttributeError" in test_code or "Enum" in test_code:
+            # Check if we need to enhance enum definitions
+            if "class Order" in test_code or "OrderBy" in test_code:
+                # Make sure common enum values are included
+                enum_pattern = re.compile(r'class\s+(?:Order|OrderBy)\s*\([^)]*\):([^}]*)', re.DOTALL)
+                for match in enum_pattern.finditer(test_code):
+                    enum_body = match.group(1)
+                    common_values = [
+                        "NAME", "ID", "CREATED", "COUNT", "TYPE", "STATUS", 
+                        "TIMESTAMP", "VALUE", "CODE"
+                    ]
+                    
+                    for value in common_values:
+                        if value not in enum_body:
+                            # Add missing value to the enum
+                            test_code = test_code.replace(
+                                enum_body, 
+                                enum_body + f"\n    {value} = \"{value.lower()}\""
+                            )
+        
+        # Fix async-related issues
+        if requirements.get('has_async', False):
+            # Ensure async tests have proper decorators
+            if "async def test_" in test_code and "@pytest.mark.asyncio" not in test_code:
+                test_code = "import pytest\npytestmark = pytest.mark.asyncio\n" + test_code
+            
+            # Replace MagicMock with AsyncMock for coroutines
+            if "await" in test_code and "AsyncMock" not in test_code:
+                if "from unittest.mock import" in test_code:
+                    test_code = test_code.replace(
+                        "from unittest.mock import", 
+                        "from unittest.mock import AsyncMock, "
+                    )
+                else:
+                    test_code = "from unittest.mock import AsyncMock\n" + test_code
+                
+                # Add comment about AsyncMock usage
+                test_code = test_code.replace(
+                    "MagicMock()",
+                    "AsyncMock()  # Use AsyncMock for coroutines that will be awaited"
+                )
         
         # Ensure we have proper imports
         imports_to_include = []
         
-        # Add core imports based on requirements
-        if requirements.get('needs_pytest', False) and "import pytest" not in test_code:
+        # Check if pytest import is needed
+        if "pytest" in test_code and "import pytest" not in test_code:
             imports_to_include.append("import pytest")
         
-        # Remove or replace pytest-mock references
-        test_code = test_code.replace("import pytest_mock", "# No pytest-mock dependency")
-        test_code = test_code.replace("pytest_plugins = ['pytest_mock']", "# No pytest-mock plugins needed")
-        
-        # Replace 'mocker' fixture usage with unittest.mock
-        if "mocker" in test_code:
-            test_code = test_code.replace("def test_", "def old_test_")  # Rename old functions
-            
-            # Find all test functions with mocker parameter
-            mocker_pattern = re.compile(r'def\s+(?:test_\w+)\s*\(\s*.*?\bmocker\b.*?\)\s*:', re.DOTALL)
-            for match in mocker_pattern.finditer(test_code):
-                old_signature = match.group(0)
-                new_signature = old_signature.replace("mocker", "")
-                new_signature = new_signature.replace("(,", "(").replace(",)", ")").replace("()", "(self)")
-                test_code = test_code.replace(old_signature, new_signature)
-            
-            # Replace mocker.patch with patch
-            test_code = test_code.replace("mocker.patch", "patch")
-            
-            # Fix fixture definitions with mocker parameter
-            fixture_pattern = re.compile(r'@pytest\.fixture\s*\(.*?\)\s*\n\s*def\s+(\w+)\s*\(\s*.*?\bmocker\b.*?\)\s*:', re.DOTALL)
-            for match in fixture_pattern.finditer(test_code):
-                fixture_name = match.group(1)
-                old_fixture = match.group(0)
-                new_fixture = old_fixture.replace("mocker", "")
-                new_fixture = new_fixture.replace("(,", "(").replace(",)", ")").replace("()", "(self)")
-                test_code = test_code.replace(old_fixture, new_fixture)
-        
-        # Make sure we have unittest.mock imports if mock/patch is used
-        if ("unittest.mock" not in test_code and 
-            ("patch" in test_code or "MagicMock" in test_code or "AsyncMock" in test_code)):
-            imports_to_include.append("from unittest.mock import patch, MagicMock, AsyncMock")
-        
-        # Check for missing field errors and add them as comments
-        missing_field_patterns = [
-            r'MissingField.*?Field\s+"(\w+)".*?missing\s+in\s+(\w+)',
-            r'Field\s+"(\w+)"\s+of\s+type.*?missing\s+in\s+(\w+)',
-            r'Field\s+"(\w+)"\s+.*?\s+is\s+missing'
-        ]
-        missing_fields_by_class = {}
-        # Read test failures if any
-        for pattern in missing_field_patterns:
-            for root, _, files in os.walk('tests'):
-                for file in files:
-                    if file.endswith('.log') or file.endswith('.txt'):
-                        try:
-                            with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
-                                content = f.read()
-                                for match in re.finditer(pattern, content):
-                                    field = match.group(1)
-                                    model_class = match.group(2) if len(match.groups()) > 1 else "Unknown"
-                                    
-                                    if model_class not in missing_fields_by_class:
-                                        missing_fields_by_class[model_class] = []
-                                        
-                                    if field not in missing_fields_by_class[model_class]:
-                                        missing_fields_by_class[model_class].append(field)
-                        except:
-                            pass
-        
-        # Add missing field warnings to mock data
-        if missing_fields_by_class:
-            # Find mock data instantiations
-            for model_class, fields in missing_fields_by_class.items():
-                # Look for model creation patterns
-                model_patterns = [
-                    rf'{model_class}\s*\(', 
-                    rf'from_dict\(.*?{model_class}',
-                    rf'from_json\(.*?{model_class}'
-                ]
-                
-                for pattern in model_patterns:
-                    model_pattern = re.compile(pattern)
-                    for match in model_pattern.finditer(test_code):
-                        position = match.start()
-                        # Find a good location to insert a comment
-                        lines = test_code[:position].split('\n')
-                        insert_pos = test_code.rfind('\n', 0, position) + 1
-                        
-                        missing_fields_comment = "# REQUIRED FIELDS FOR {0}:\n".format(model_class)
-                        for field in fields:
-                            missing_fields_comment += f'# - "{field}"\n'
-                        
-                        # Insert comment before the model instantiation
-                        test_code = test_code[:insert_pos] + missing_fields_comment + test_code[insert_pos:]
-                
-                # Also look for mock data dictionaries
-                mock_pattern = re.compile(r'(mock_\w+_data|test_data)\s*=\s*\{')
-                for match in mock_pattern.finditer(test_code):
-                    position = match.end()
-                    missing_fields_comment = f"\n    # REQUIRED FIELDS FOR {model_class}:\n"
-                    for field in fields:
-                        missing_fields_comment += f'    # "{field}": "value",\n'
-                    # Insert comment after the opening brace
-                    test_code = test_code[:position] + missing_fields_comment + test_code[position:]
-                    
-        # Add import for the module under test if not present
+        # Check if module under test import is needed
         module_import = f"from {import_path} import *"
-        if module_import not in test_code:
+        if import_path and module_import not in test_code:
             imports_to_include.append(module_import)
         
         # Add imports at the beginning if needed
         if imports_to_include:
             test_code = '\n'.join(imports_to_include) + '\n\n' + test_code
         
-        # Ensure async functions have proper decorators
-        if requirements.get('has_async', False) and "async def test_" in test_code and "@pytest.mark.asyncio" not in test_code:
-            lines = test_code.split('\n')
-            processed_lines = []
-            
-            for i, line in enumerate(lines):
-                if line.strip().startswith("async def test_") and not lines[i-1].strip().startswith("@pytest.mark.asyncio"):
-                    processed_lines.append("@pytest.mark.asyncio")
-                processed_lines.append(line)
-            
-            test_code = '\n'.join(processed_lines)
-        
-        # Add test class if using instance fixtures but no test class
-        if "def " in test_code and "(self)" in test_code and not "class Test" in test_code:
-            # Extract non-fixture functions with self parameter but no class
-            func_pattern = re.compile(r'def\s+(?!fixture)(\w+)\s*\(\s*self\s*(?:,|\))', re.DOTALL)
-            matches = func_pattern.findall(test_code)
-            
-            if matches:
-                # Extract lines before the first function
-                first_func_line = test_code.find(f"def {matches[0]}")
-                prefix = test_code[:first_func_line].rstrip()
-                suffix = test_code[first_func_line:]
-                
-                # Create a test class wrapper
-                module_name = os.path.basename(module_path)
-                if module_name.endswith('.py'):
-                    module_name = module_name[:-3]
-                
-                class_name = f"Test{module_name.title()}"
-                class_def = f"\nclass {class_name}:\n"
-                
-                # Add the class definition and indent all the functions
-                test_code = prefix + class_def + "\n".join(f"    {line}" for line in suffix.split('\n'))
-        
         # Validate that the result is proper Python syntax
         try:
             compile(test_code, "<string>", "exec")
-            logger.info("Successfully generated and validated test code")
         except SyntaxError as e:
-            logger.warning(f"Generated code has syntax error: {e}")
-            # Fallback to basic test scaffold
-            test_code = self._generate_fallback_test(module_path, import_path)
+            # Add a comment about the syntax error but keep the code
+            test_code = f"# Warning: Syntax error in generated code: {str(e)}\n\n" + test_code
         
         return test_code
     
