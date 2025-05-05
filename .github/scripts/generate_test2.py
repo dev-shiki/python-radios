@@ -130,7 +130,7 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
                             used_libraries: List[str] = None) -> str:
         """Create a prompt for generating tests."""
         if uncovered_functions is None:
-        uncovered_functions = self._extract_uncovered_functions(source_code)
+            uncovered_functions = self._extract_uncovered_functions(source_code)
         
         # If models not provided, extract them
         if models is None:
