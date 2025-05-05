@@ -171,33 +171,23 @@ class TestRefiner:
     
     def _get_refinement_system_prompt(self) -> str:
         """Return the system prompt for test refinement."""
-        return """You are an expert Python test refiner. Your task is to:
-1. Fix failing tests based on error messages
-2. Add missing test coverage for uncovered lines
-3. Improve test quality and completeness
-4. Maintain existing working tests
-5. Follow pytest best practices
-6. Return only the refined test code without explanations"""
+        return """You are a Python test debugging specialist. Your mission:
+- Fix test failures with precision
+- Improve coverage without bloat
+- Preserve working tests exactly
+- Resolve async/mock/import issues
+- Enhance test quality systematically
+
+Return only the necessary changes to make tests robust and comprehensive."""
     
-    def _create_refinement_prompt(self, test_file: Path, current_code: str, analysis_data: Dict) -> str:
-        """Create a prompt for refining tests."""
-        # Extract relevant analysis data for this file
-        file_str = str(test_file)
-        source_file = file_str.replace('test_', '').replace('tests/', '')
+    def create_refinement_prompt(self, test_file: Path, 
+                                current_code: str, 
+                                errors: List[str] = None,
+                                uncovered_lines: List[int] = None,
+                                test_failures: Dict = None) -> str:
+        """Create a prompt for refining existing tests."""
         
-        uncovered_lines = []
-        test_failures = []
-        
-        for item in analysis_data.get('remaining_gaps', []):
-            if item['file'].endswith(Path(source_file).name):
-                uncovered_lines = item.get('uncovered_lines', [])
-                break
-        
-        for failure in analysis_data.get('failed_tests', []):
-            if test_file.name in failure.get('test', ''):
-                test_failures.append(failure)
-        
-        prompt = f"""Refine these pytest test cases:
+        prompt = f"""You are an expert test refactor specialist. Improve the following test code:
 
 CURRENT TEST FILE: {test_file}
 
@@ -208,28 +198,67 @@ CURRENT CODE:
 
 ISSUES TO ADDRESS:
 """
-        
+    
         if uncovered_lines:
-            prompt += f"\n1. Uncovered lines: {uncovered_lines}"
-            prompt += "\n   Add tests to cover these lines."
-        
+            prompt += f"""
+1. COVERAGE GAPS:
+   - Uncovered lines: {uncovered_lines}
+   - Add tests to hit these lines specifically
+   - Ensure all branches and conditions are tested
+"""
+    
+        if errors:
+            prompt += f"""
+2. SYNTAX/IMPORT ERRORS:
+```
+{chr(10).join(errors[:10])}  # First 10 errors
+```
+   - Fix import statements
+   - Resolve syntax issues
+   - Ensure all required fixtures are defined
+"""
+    
         if test_failures:
-            prompt += "\n2. Test failures:"
-            for i, failure in enumerate(test_failures):
-                prompt += f"\n   Test: {failure['test']}"
-                prompt += f"\n   Error: {' '.join(failure['error'][:3])}"
-        
+            prompt += """
+3. TEST FAILURES:
+"""
+            for i, failure in enumerate(test_failures[:5]):  # First 5 failures
+                prompt += f"""
+   Test {i+1}: {failure.get('test', 'unknown')}
+   Error: {failure.get('error', 'no error message')[:200]}...
+   
+   Fix by:
+   - Checking mock configuration
+   - Verifying expected vs actual behavior
+   - Ensuring async/await is properly handled
+   - Validating dataclass field requirements
+"""
+    
         prompt += """
+REFINEMENT REQUIREMENTS:
 
-REQUIREMENTS:
-1. Fix all failing tests
-2. Add tests for uncovered lines
-3. Keep existing working tests unchanged
-4. Improve test completeness
-5. Return only the refined test code
+1. Fix all errors without removing existing tests
+2. Add missing tests for uncovered code
+3. Improve test quality:
+   - Better assertions
+   - More comprehensive mocking
+   - Better test isolation
+   - Clearer test names
 
-Return the complete refined test file."""
-        
+4. Maintain test structure:
+   - Keep working tests unchanged
+   - Add only what's necessary
+   - Follow existing patterns
+
+5. Address specific issues:
+   - For async errors: ensure AsyncMock is used
+   - For missing field errors: include all required fields
+   - For import errors: fix import paths
+   - For fixture errors: add missing fixtures
+
+Return the complete refined test file with all improvements.
+"""
+    
         return prompt
     
     def save_refined_test(self, test_file: Path, refined_code: str) -> bool:

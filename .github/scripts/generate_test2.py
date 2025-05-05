@@ -114,33 +114,201 @@ class UniversalTestGenerator:
     
     def _get_system_prompt(self) -> str:
         """Return the system prompt for the AI model."""
-        return """You are an expert Python test generator. Your task is to:
-1. Generate comprehensive pytest test cases for the provided code
-2. Include imports, fixtures, and test functions
-3. Test both happy paths and edge cases
-4. Use proper mocking for external dependencies
-5. Follow pytest best practices
-6. Return only the test code without explanations"""
-    
-    def _create_prompt(self, file_path: Path, source_code: str) -> str:
-        """Create a prompt for generating tests."""
-        return f"""Generate pytest test cases for this Python file:
+        return """You are a master Python test generator. Your expertise:
+- Write concise yet comprehensive pytest tests
+- Mock external dependencies perfectly  
+- Test edge cases and error paths
+- Use correct async/await patterns
+- Name tests clearly and descriptively
 
-FILE: {file_path}
+Always deliver production-ready, minimal test code that achieves maximum coverage."""
+    
+    def create_prompt(self, source_file: Path, 
+                            source_code: str, 
+                            uncovered_functions: Dict[str, Dict] = None,
+                            models: Dict[str, Dict] = None,
+                            used_libraries: List[str] = None) -> str:
+        """Create a prompt for generating tests."""
+        if uncovered_functions is None:
+        uncovered_functions = self._extract_uncovered_functions(source_code)
+        
+        # If models not provided, extract them
+        if models is None:
+            models = self._extract_model_structure(source_code)
+        
+        # If libraries not provided, extract them
+        if used_libraries is None:
+            used_libraries = self._identify_used_libraries(source_code)
+        
+        # Extract function details
+        function_details = self._extract_detailed_function_info(uncovered_functions)
+        
+        # Generate model examples
+        model_examples = ""
+        if models:
+            model_examples = "\nMODEL MOCK EXAMPLES:\n"
+            for model_name, fields in models.items():
+                mock_data = "{\n"
+                for field_name, field_info in fields.items():
+                    field_type = field_info.get('type', 'str')
+                    mock_value = self._generate_mock_value_for_type(field_type)
+                    mock_data += f'    "{field_name}": {mock_value},\n'
+                mock_data += "}"
+                model_examples += f"\n{model_name} mock example:\n```json\n{mock_data}\n```\n"
+        
+        prompt = f"""You are an expert Python testing specialist. Generate comprehensive pytest test cases for the given code.
+
+MODULE INFORMATION:
+- File: {source_file}
+- Module path: {self.module_name}
+- Test file path: {self.test_file_path}
 
 SOURCE CODE:
 ```python
 {source_code}
 ```
 
-Generate a complete test file with:
-1. All necessary imports
-2. Test fixtures where needed
-3. Test functions for each function/method
-4. Edge cases and error conditions
-5. Proper mocking for external dependencies
+FUNCTIONS REQUIRING TESTS:
+{function_details}
 
-Return only the test code without explanations."""
+LIBRARY CONTEXT:
+- Used libraries: {', '.join(used_libraries)}
+{model_examples}
+
+CRITICAL TEST GENERATION RULES:
+
+1. IMPORTS & STRUCTURE
+   - Import pytest, unittest.mock.AsyncMock/MagicMock as needed
+   - Use the EXACT import paths as used in the source module
+   - Order imports: stdlib → third-party → local project imports
+   - Import only what's needed for testing
+
+2. ASYNC TESTING RULES (MANDATORY):
+   - ALL async functions MUST have @pytest.mark.asyncio decorator
+   - Use AsyncMock exclusively for async functions/methods
+   - For async context managers:
+     ```python
+     mock_session = AsyncMock()
+     mock_response = AsyncMock()
+     mock_session.request.return_value.__aenter__.return_value = mock_response
+     ```
+   - ALWAYS await async calls in tests:
+     ```python
+     result = await radio_browser.stats()  # CORRECT
+     result = radio_browser.stats()       # WRONG - returns coroutine
+     ```
+   
+3. MOCKING GUIDELINES:
+   - Mock at the import location, not definition location
+   - Use proper mock types: AsyncMock for async, MagicMock for sync
+   - Set return_value or side_effect appropriately
+   - For sequential calls, use side_effect with a list
+   - Mock ALL external dependencies (APIs, databases, file systems)
+
+4. FIXTURES:
+   - Create fixtures for complex test setup
+   - Use pytest.fixture decorator
+   - Never call fixtures directly - pass as parameters
+   - Consider fixture scope (function, class, module)
+   - Name fixtures descriptively
+
+5. ERROR HANDLING:
+   - Test both success and error cases
+   - Use pytest.raises for expected exceptions
+   - Mock timeouts, connection errors, and API failures
+   - Verify error messages and types
+
+6. DATACLASS/MODEL TESTING:
+   - Include ALL required fields in mock data
+   - Match field types exactly
+   - Handle Optional/Union types properly
+   - Test serialization/deserialization if relevant
+
+7. TEST COVERAGE REQUIREMENTS:
+   - Test each branch of conditional logic
+   - Test edge cases (empty inputs, None values, errors)
+   - Test boundary conditions
+   - Verify all side effects (calls, state changes)
+
+8. HTTP/API TESTING:
+   - Mock API responses completely
+   - Test different status codes
+   - Mock network errors
+   - Verify request parameters
+
+9. TEST NAMING:
+   - Use descriptive test names: test_function_succeeds_when_condition
+   - Follow pattern: test_[what]_[when]_[expected]
+   - Be specific about what's being tested
+
+10. ASSERTIONS:
+    - Use specific assertions (assert_called_once_with)
+    - Verify return values and types
+    - Check state changes
+    - Validate side effects
+
+EXAMPLE TEST PATTERNS:
+
+1. Async function testing:
+```python
+@pytest.mark.asyncio
+async def test_async_function():
+    # Setup
+    mock_client = AsyncMock()
+    mock_response = AsyncMock()
+    mock_client.get.return_value = mock_response
+    
+    # Test
+    result = await async_function(mock_client)
+    
+    # Verify
+    assert result == expected
+    mock_client.get.assert_called_once_with(url)
+```
+
+2. Exception testing:
+```python
+@pytest.mark.asyncio
+async def test_handles_timeout():
+    mock_client = AsyncMock()
+    mock_client.get.side_effect = asyncio.TimeoutError()
+    
+    with pytest.raises(TimeoutError):
+        await async_function(mock_client)
+```
+
+3. Context manager testing:
+```python
+def test_context_manager():
+    mock_ctx = MagicMock()
+    mock_ctx.__enter__.return_value = "resource"
+    
+    with mock_ctx as resource:
+        assert resource == "resource"
+    
+    mock_ctx.__enter__.assert_called_once()
+    mock_ctx.__exit__.assert_called_once()
+```
+
+OUTPUT FORMAT:
+- Start with necessary imports
+- Define fixtures if needed
+- Write test functions
+- Include docstrings explaining what each test does
+- Return only the test code, no explanations
+
+COMMON PITFALLS TO AVOID:
+- Never use regular Mock for async functions
+- Don't call fixtures directly
+- Avoid magic numbers - use constants
+- Don't test implementation details
+- Don't skip error cases
+- Don't forget to await async calls
+
+Generate complete, production-ready test code following all these guidelines.
+"""
+    
+        return prompt
     
     def save_test_file(self, source_file: Path, test_code: str) -> Path:
         """
