@@ -123,7 +123,7 @@ class UniversalTestGenerator:
 
 Always deliver production-ready, minimal test code that achieves maximum coverage."""
     
-    def create_prompt(self, source_file: Path, 
+    def _create_prompt(self, source_file: Path, 
                             source_code: str, 
                             uncovered_functions: Dict[str, Dict] = None,
                             models: Dict[str, Dict] = None,
