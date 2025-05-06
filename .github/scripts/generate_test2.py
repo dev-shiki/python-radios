@@ -586,7 +586,9 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
             for file_path in model_reference_files:
                 model_definitions = self.extract_model_definitions(file_path)
                 if model_definitions:
-                    model_reference_code += f"\n# From {file_path.relative_to(Path.cwd())}\n```python\n{model_definitions}\n```\n"
+                    # Use str(file_path) instead of trying to make it relative
+                    # This avoids the ValueError when paths can't be made relative
+                    model_reference_code += f"\n# From {file_path}\n```python\n{model_definitions}\n```\n"
         
         # Extract function details
         function_details = self._extract_detailed_function_info(uncovered_functions)
