@@ -20,7 +20,7 @@ class UniversalTestGenerator:
     def __init__(self, 
                  api_key: str,
                  coverage_threshold: float = 80.0,
-                 model: str = "anthropic/claude-3.7-sonnet"):
+                 model: str = "google/gemini-2.0-flash-001"):
         """Initialize with minimal configuration."""
         self.api_key = api_key
         self.coverage_threshold = coverage_threshold
@@ -637,7 +637,11 @@ TEST GENERATION REQUIREMENTS:
    - Configure mocks to handle the exact number of expected calls
    - Set up appropriate return values and side effects
 8. For API endpoints:
-   - Use exact endpoint paths from the source code
+   - Use EXACT endpoint paths from the source code
+   - Check each path segment carefully (e.g., '/click/' might be required in a path)
+   - Verify URL structures match exactly between tests and API implementation
+   - Compare test assertions with actual API calls to ensure path alignment
+   - Pay attention to endpoint variations like 'url/click/uuid' vs 'url/uuid'
 9. For error handling:
    - Test all relevant error scenarios
    - Import and use correct exception classes
@@ -736,7 +740,7 @@ def main():
         sys.exit(1)
     
     # Get optional model
-    model = os.getenv("OPENAI_MODEL", "anthropic/claude-3.7-sonnet")
+    model = os.getenv("OPENAI_MODEL", "google/gemini-2.0-flash-001")
     
     coverage_threshold = float(os.getenv("COVERAGE_THRESHOLD", "80"))
     target_files_str = os.getenv("TARGET_FILES", "")
