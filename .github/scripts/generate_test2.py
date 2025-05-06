@@ -613,53 +613,32 @@ FUNCTIONS REQUIRING TESTS:
 LIBRARY CONTEXT:
 - Used libraries: {', '.join(used_libraries)}
 
-TESTING PRINCIPLES:
+KEY REQUIREMENTS:
+1. Import correctly:
+   - Use unittest.mock (patch, AsyncMock, MagicMock, call)
+   - Import pytest.mark.asyncio for async tests
 
-1. ACCURACY IN REFERENCES
-   - Study all code definitions thoroughly before writing tests
-   - Use exact identifiers as defined in source code
-   - Respect naming conventions used in the codebase
-   - Consider inheritance and composition in models
-   - Verify all constant and enum references against their definitions
+2. Study models carefully:
+   - Use exact field names as defined in code
+   - Use correct enum members from definitions
+   - Match field types precisely
 
-2. TYPE CONSISTENCY
-   - Maintain consistent types across test assertions
-   - Convert between types as needed for valid comparisons
-   - Consider serialization formats and their type implications
-   - Ensure proper type handling for API parameters and responses
-   - Pay attention to boolean representations in different contexts
+3. Handle async code correctly:
+   - await all coroutines before using their results
+   - Use AsyncMock for async functions
+   - Set awaitable return values for async mocks
 
-3. ASYNCHRONOUS CODE
-   - Apply correct awaiting patterns consistently
-   - Remember that coroutines must be resolved before using results
-   - Consider the differences between synchronous and asynchronous patterns
-   - Ensure proper mocking techniques for asynchronous operations
-   - Think about control flow in asynchronous contexts
+4. Verify API interactions:
+   - Match exact endpoint paths from implementation
+   - Convert values to expected API formats
+   - Properly handle string vs boolean conversions
 
-4. API INTERACTIONS
-   - Study API implementations to understand exact patterns
-   - Confirm all endpoint structures match implementation
-   - Verify parameter formats meet API expectations
-   - Consider data transformation between client and server
-   - Validate all response handling
+5. Ensure resource cleanup:
+   - Verify close() methods are called
+   - Test context manager exit behavior
 
-5. RESOURCE LIFECYCLE
-   - Consider the complete lifecycle of all resources
-   - Ensure resources are properly initialized and cleaned up
-   - Verify context manager protocols are correctly implemented
-   - Test both success and failure paths for cleanup
-   - Think about resource management in different contexts
-
-STRUCTURAL REQUIREMENTS:
-- Use pytest.mark.asyncio for async tests
-- Import testing tools directly, not through fixtures
-- Include all necessary imports
-- Follow established patterns in the codebase
-
-RESULT FORMAT (code only, no explanations):
+Write only the complete test code with no explanations.
 ```python
-# Complete test file with imports, fixtures, and test functions
-```
 """
     
         return prompt
