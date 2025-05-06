@@ -613,55 +613,48 @@ FUNCTIONS REQUIRING TESTS:
 LIBRARY CONTEXT:
 - Used libraries: {', '.join(used_libraries)}
 
-TEST GENERATION PRINCIPLES:
+TESTING PRINCIPLES:
 
-1. CODE STRUCTURE
-   - Write valid Python test code with proper imports
-   - Import the module under test correctly
-   - Create descriptive test names that indicate what's being tested
-   - Use unittest.mock instead of pytest-mock
+1. ACCURACY IN REFERENCES
+   - Study all code definitions thoroughly before writing tests
+   - Use exact identifiers as defined in source code
+   - Respect naming conventions used in the codebase
+   - Consider inheritance and composition in models
+   - Verify all constant and enum references against their definitions
 
-2. MODEL ANALYSIS
-   - Study all model definitions thoroughly before writing tests
-   - Use exact field names as defined in the models (verify spelling and case)
-   - Respect the difference between lowercase and uppercase identifiers
-   - When working with enums, use the exact enum member names from source
-   - Include all required fields in mock data, even seemingly optional ones
-   - Match field types precisely (bool vs int vs str)
+2. TYPE CONSISTENCY
+   - Maintain consistent types across test assertions
+   - Convert between types as needed for valid comparisons
+   - Consider serialization formats and their type implications
+   - Ensure proper type handling for API parameters and responses
+   - Pay attention to boolean representations in different contexts
 
-3. DATA TYPE HANDLING
-   - Be precise about type matching in assertions
-   - Remember that boolean True/False is different from string 'true'/'false'
-   - For API parameters, convert Python booleans to the format expected by the API
-   - When parsing API responses, convert string booleans back to Python booleans
-   - Validate all constructed JSON with proper parsing before using in tests
+3. ASYNCHRONOUS CODE
+   - Apply correct awaiting patterns consistently
+   - Remember that coroutines must be resolved before using results
+   - Consider the differences between synchronous and asynchronous patterns
+   - Ensure proper mocking techniques for asynchronous operations
+   - Think about control flow in asynchronous contexts
 
-4. ASYNCHRONOUS TESTING
-   - Use AsyncMock, not MagicMock, for all async functions
-   - Always await coroutines before using their results
-   - Never try to directly iterate over or access attributes of unwrapped coroutines
-   - For functions returning collections: first await, then iterate
-   - Set up async mocks with properly awaitable return values
-   - Use proper async context managers with async with
+4. API INTERACTIONS
+   - Study API implementations to understand exact patterns
+   - Confirm all endpoint structures match implementation
+   - Verify parameter formats meet API expectations
+   - Consider data transformation between client and server
+   - Validate all response handling
 
-5. API INTERACTIONS
-   - Verify exact API endpoint paths from implementation
-   - Check each segment of URL paths (e.g., '/byname/' vs '/name/')
-   - Mock exact request parameters expected by the implementation
-   - Ensure mock JSON responses match the exact format returned by the API
-   - Test all error paths (DNS errors, connection failures, etc.)
+5. RESOURCE LIFECYCLE
+   - Consider the complete lifecycle of all resources
+   - Ensure resources are properly initialized and cleaned up
+   - Verify context manager protocols are correctly implemented
+   - Test both success and failure paths for cleanup
+   - Think about resource management in different contexts
 
-6. RESOURCE MANAGEMENT
-   - Verify that resources are properly closed after use
-   - Test that close() methods are called exactly as expected
-   - Ensure both normal and error paths properly clean up resources
-   - For context managers, test both __enter__/__exit__ and __aenter__/__aexit__
-
-IMPORTS TO INCLUDE:
-```python
-import pytest
-from unittest.mock import patch, AsyncMock, MagicMock, call
-```
+STRUCTURAL REQUIREMENTS:
+- Use pytest.mark.asyncio for async tests
+- Import testing tools directly, not through fixtures
+- Include all necessary imports
+- Follow established patterns in the codebase
 
 RESULT FORMAT (code only, no explanations):
 ```python
