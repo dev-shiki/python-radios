@@ -613,69 +613,43 @@ FUNCTIONS REQUIRING TESTS:
 LIBRARY CONTEXT:
 - Used libraries: {', '.join(used_libraries)}
 
-TEST GENERATION REQUIREMENTS:
-## STRICT GUIDELINES
-1. Write ONLY valid Python test code with no explanations or markdown
-2. Include proper imports for ALL required packages and modules
-3. Import the module under test correctly
-4. Focus on COMPLETE test coverage for functions with low coverage
-5. For model classes and mock responses:
-   - Analyze model structures carefully to include ALL required fields
-   - Pay close attention to field case sensitivity (stationcount vs STATIONCOUNT)
-   - Ensure common fields like 'supported_version', 'code', and 'bitrate' are included
-   - Match field types exactly with what models expect (int, Optional[str], etc.)
-   - When in doubt, include more fields rather than fewer
-   - Pay careful attention to field name CASE SENSITIVITY (uppercase vs lowercase matters)
-   - Include ALL boolean fields in model instances, even those that might seem optional
-   - For data models with serialization, ensure every defined field is present in test data
-6. For asynchronous code:
-   - Use appropriate async patterns throughout
-   - Handle coroutines correctly in all contexts
-   - IMPORTANT! NEVER iterate directly over coroutines (to avoid "TypeError: argument of type 'coroutine' is not iterable") 
-   - Always properly await every coroutine before using its result
-   - Use AsyncMock for mocking any async functions
-   - When mocking async functions, ensure return values are awaitable with AsyncMock(return_value=value)
-   - For testing async code that returns lists or iterables, ensure you await the coroutine before iterating
-   - Always AWAIT coroutines before accessing their attributes or methods
-   - Remember that unawaited coroutines don't have the attributes of their resolved values
-   - For objects that expose asynchronous methods, ensure they're properly awaited before use
-7. For mocking external services:
-   - Configure mocks to handle the exact number of expected calls
-   - Set up appropriate return values and side effects
-   - Ensure proper resource cleanup by verifying necessary method calls on closable resources
-   - For context managers or resources that need cleanup, assert all cleanup methods are called
-   - Pay attention to connection objects that should be properly closed after use
-8. For API endpoints:
-   - Use EXACT endpoint paths from the source code
-   - Check each path segment carefully (e.g., '/click/' might be required in a path)
-   - Verify URL structures match exactly between tests and API implementation
-   - Compare test assertions with actual API calls to ensure path alignment
-   - Pay attention to endpoint variations like 'url/click/uuid' vs 'url/uuid'
-9. For error handling:
-   - Test all relevant error scenarios
-   - Import and use correct exception classes
-10. Create descriptive test function names that indicate what is being tested
-11. IMPORTANT: DO NOT use pytest-mock fixtures (mocker). Use unittest.mock directly:
-    ```python
-    from unittest.mock import patch, AsyncMock, MagicMock, call
-    ```
-12. Use class-level fixtures with self parameter instead of function-level fixtures when testing classes
-13. For assertions:
-    - Ensure proper type matching in assertions (e.g., boolean vs string values)
-    - Pay attention to data type conversions between API responses and assertions
-    - Check that boolean values (True/False) aren't compared with string representations ('true'/'false')
-    - For JSON data containing booleans, verify correct deserialization of true/false values
+TEST GENERATION PRIORITIES:
+1. CORRECTNESS: Write syntactically valid Python test code with proper imports and correct module references.
 
-CRITICAL AREAS TO ANALYZE:
-Examine the source code and model references carefully to identify:
-- Required model fields and their exact types
-- Case sensitivity in field names (especially STATIONCOUNT vs stationcount)
-- API endpoint URL patterns and formats
-- Asynchronous function behavior
-- External service interaction patterns
-- Error handling approaches
+2. MODELS & DATA: 
+   - Include ALL fields in model instances (observe model definitions carefully)
+   - Maintain exact case sensitivity in field names
+   - Match field types precisely (bool, int, str, Optional[str], etc.)
 
-RESULT FORMAT (just the code, no explanations):
+3. ASYNC HANDLING:
+   - Always await coroutines before accessing attributes or iterating
+   - Use AsyncMock for any async method or function
+   - Ensure mock responses from async functions are awaitable
+
+4. API ENDPOINTS:
+   - Match URL path structure EXACTLY (including all path segments)
+   - Verify endpoint formats against source code implementation
+   - Use correct parameter formats and types
+
+5. RESOURCE MANAGEMENT:
+   - Verify resources are properly closed/cleaned up
+   - Assert cleanup methods are called as expected
+   - Handle context managers correctly
+
+6. TYPE CONSISTENCY:
+   - Ensure assertions compare values of matching types
+   - Handle JSON boolean conversion correctly (true/false strings vs True/False)
+   - Deserialize API responses to appropriate Python types
+
+IMPORTS AND FRAMEWORK:
+```python
+# Always include these for proper async testing
+import pytest
+from unittest.mock import patch, AsyncMock, MagicMock, call
+# DO NOT use pytest-mock fixtures
+```
+
+RESULT FORMAT (code only, no explanations):
 ```python
 # Complete test file with imports, fixtures, and test functions
 ```
