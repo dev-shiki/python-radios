@@ -517,19 +517,23 @@ LIBRARY CONTEXT:
 TEST GENERATION REQUIREMENTS:
 ## STRICT GUIDELINES
 1. Write ONLY valid Python test code with no explanations or markdown
-2. Include proper imports for ALL required packages and modules
+2. Include proper imports for ALL required packages and modules:
+   - Import ALL necessary dependencies (e.g., aiodns, orjson)
+   - Missing imports like 'aiodns' cause test failures
 3. Import the module under test correctly
 4. Focus on COMPLETE test coverage for functions with low coverage
 5. For mock responses, ensure ALL model fields match EXACT requirements:
-   - Inspect model class definitions to identify ALL required fields
    - Include ALL required fields in mock response dictionaries (e.g., 'supported_version', 'code', 'change_uuid', 'bitrate', 'stationcount')
    - Match field types exactly (int, str, bool, etc.)
+   - Pay special attention to field CASE SENSITIVITY (e.g., 'stationcount' vs 'STATIONCOUNT')
+   - Handle attributes referenced in both camelCase and lowercase or uppercase forms
    - Use Optional fields only when documented as optional
    - Double-check models to include ALL fields that mashumaro expects
 6. When working with serialization libraries (e.g., mashumaro, orjson):
    - Make sure mock data is the correct type (usually dict) before conversion
    - Ensure mock JSON strings are properly formatted without invalid characters
-   - Validate JSON structure before using it in tests to avoid JSONDecodeError
+   - Validate all JSON strings before using them to avoid JSONDecodeError
+   - Check quotes, escape characters, control characters in all JSON strings
    - Include proper error handling for serialization/deserialization issues
 7. For asynchronous code:
    - Use AsyncMock instead of MagicMock for async functions
@@ -543,7 +547,7 @@ TEST GENERATION REQUIREMENTS:
    - Double-check all parameters being passed to requests
 9. Create descriptive test function names that indicate what is being tested
 10. Include proper error handling and edge case testing:
-    - Test for network failures and error responses
+    - Test for network failures and error responses (like DNS errors)
     - Mock appropriate exceptions (e.g., aiohttp.ClientError)
     - Test for non-JSON responses when dealing with API calls
 11. Use appropriate fixtures and test setup for the testing framework
@@ -553,6 +557,9 @@ TEST GENERATION REQUIREMENTS:
     from unittest.mock import patch, AsyncMock, MagicMock
     ```
 14. Use class-level fixtures with self parameter instead of function-level fixtures when testing classes
+15. Be extra careful with library dependencies:
+    - Include all necessary imports for exception handling (like aiodns for DNS errors)
+    - Import exceptions from their correct locations (e.g., from aiohttp import ClientError)
 
 RESULT FORMAT (just the code, no explanations):
 ```python
