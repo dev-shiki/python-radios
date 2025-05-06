@@ -598,7 +598,7 @@ Write clean, production-quality {test_framework} test code for this Python modul
 ## STRICT GUIDELINES
 1. Write ONLY valid Python test code with no explanations or markdown
 2. Include proper imports for ALL required packages and modules
-3. Import the module under test correctly
+3. Import the module under test correctly: `from {import_path} import *`
 4. Focus on COMPLETE test coverage for functions with low coverage
 5. For mock responses, include ALL required fields in model dictionaries/JSON
 6. Never skip required fields in mock responses - check actual model structure
