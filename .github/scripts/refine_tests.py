@@ -169,7 +169,7 @@ Return ONLY the complete fixed test file with no explanations.
         try:
             print(f"Generating refinements for {test_file}...")
             response = self.openai_client.chat.completions.create(
-                model="google/gemini-2.0-flash-001",  # High-quality model for test fixing
+                model="anthropic/claude-3.7-sonnet",  # High-quality model for test fixing
                 messages=[
                     {"role": "system", "content": self._get_system_prompt()},
                     {"role": "user", "content": prompt}
