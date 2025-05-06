@@ -548,7 +548,7 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
                         for base in node.bases:
                             base_str = ast.unparse(base)
                             if any(model_base in base_str for model_base in 
-                                  ['enum', 'DataClassJSONMixin', 'BaseModel', 'SerializationMixin']):
+                                  ['Enum', 'DataClassJSONMixin', 'BaseModel', 'SerializationMixin']):
                                 is_model = True
                                 break
                     
