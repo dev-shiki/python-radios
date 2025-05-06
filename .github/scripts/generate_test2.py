@@ -613,46 +613,29 @@ FUNCTIONS REQUIRING TESTS:
 LIBRARY CONTEXT:
 - Used libraries: {', '.join(used_libraries)}
 
-Before writing tests, carefully analyze:
-1. Model structures - look at ALL required fields and their types
-2. Constant and enum definitions - note exact names and string values
-3. API endpoint formats - check exact URL structures in implementation
-4. JSON serialization methods - note how data is formatted
+KEY TESTING PATTERNS TO FOLLOW:
 
-When writing tests:
-1. Use unittest.mock directly (not pytest-mock fixtures):
-   - from unittest.mock import patch, MagicMock, AsyncMock, call
+1. Study the code thoroughly first
+   - Analyze how models are defined and used
+   - Understand naming patterns in the codebase
+   - Identify API endpoint structures
+   - Note serialization approaches used
 
-2. For model instances in tests:
-   - Include ALL required fields (code, click_timestamp, etc.)
-   - Use proper datetime types for timestamp fields
-   - Match field types exactly as defined
+2. Structure tests properly
+   - Use direct imports over fixtures when appropriate
+   - Create clear test methods with descriptive names
+   - Group related test methods logically
 
-3. For constants and enums:
-   - Use the exact case and format from definitions
-   - Check for underscores in constant names
-   - For string values, use the values defined in the enum
+3. Apply testing best practices
+   - Mock external dependencies appropriately
+   - Test both success and error cases
+   - Verify resource cleanup
+   - Follow patterns established in the codebase
 
-4. For API endpoints:
-   - Match exact paths from implementation (byname vs name)
-   - Check URL structure in both mocks and assertions
-   - Use consistent formats between expectations and actual calls
-
-5. For JSON data:
-   - Validate all mock JSON strings to ensure they're valid JSON
-   - Test JSON strings with orjson.loads() before using in tests
-   - Properly escape quotes and special characters
-   - Avoid control characters in JSON strings
-   - Use string formatting carefully to prevent malformed JSON
-
-6. For async code and resource cleanup:
-   - Use AsyncMock for async functions
-   - Always await coroutines before using results
-   - For resources with close() methods, explicitly test they're awaited
-   - For async context managers, verify __aexit__ calls close()
-   - Use assert_awaited_once() for verifying async method calls
-
-Include appropriate fixtures, mocks, and assertions based on your analysis.
+4. Pay attention to details
+   - Match exact names and formats from code
+   - Handle type conversions appropriately
+   - Validate all data structures before use
 
 Write only the test code, no explanations.
 ```python
