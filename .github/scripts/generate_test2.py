@@ -616,21 +616,19 @@ LIBRARY CONTEXT:
 TEST GENERATION PRIORITIES:
 1. CORRECTNESS: Write syntactically valid Python test code with proper imports and correct module references.
 
-2. MODELS & DATA: 
-   - Read model definitions carefully to use exact attribute names
-   - Be precise with capitalization and formatting (lowercase/uppercase, with/without underscores)
-   - When using enums or constants, reference the exact member names as defined in source code
-   - For fields with variants, use the exact form from the model definition
-   - Match field types precisely (bool, int, str, Optional[str], etc.)
+2. DATA HANDLING PRINCIPLES:
+   - Analyze model definitions carefully to understand their exact structure
+   - Consider how serialization libraries interact with field names and types
+   - Pay attention to naming conventions and consistency in the codebase
+   - Think about how to properly construct mock data that satisfies all model constraints
+   - Consider type conversion between API representations and internal models
 
-3. ASYNC HANDLING:
-   - Key principle: Always fully resolve coroutines before using their results
-   - For any async function call: result = await async_function()
-   - Never use a coroutine directly in iteration, attribute access, or context management
-   - Pattern for iteration: results = await async_iter_function(); for item in results: ...
-   - Pattern for attribute access: obj = await async_function(); obj.attribute
-   - Pattern for context management: async with (await get_context_manager()): ...
-   - Always use AsyncMock for async functions and methods
+3. ASYNC PROGRAMMING PRINCIPLES:
+   - Coroutines must be resolved before their results can be used
+   - Consider the differences between synchronous and asynchronous context managers
+   - Think about the appropriate mock types for different asynchronous patterns
+   - Remember that different objects have different protocols for asynchronous operations
+   - Consider cleanup and resource management in both synchronous and asynchronous contexts
 
 4. API ENDPOINTS:
    - Match URL path structure EXACTLY (including all path segments)
