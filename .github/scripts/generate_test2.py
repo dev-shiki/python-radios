@@ -522,52 +522,65 @@ CRITICAL TEST GENERATION RULES:
    - Order imports: stdlib → third-party → local project imports
    - Import only what's needed for testing
 
-2. ASYNC TESTING RULES (MANDATORY):
+2. MODEL INSTANCES RULES (HIGHEST PRIORITY):
+   - ALWAYS include ALL REQUIRED fields in model instances
+   - EXACTLY match field names as defined in the models
+   - NEVER add fields that don't exist in the model
+   - Check model fields from the SOURCE CODE, not assumptions
+   - For mashumaro/pydantic models, ensure all required fields are provided
+   - Use EXACT field names from the model definition, not variants
+   - When mocking responses, include ALL required fields
+
+3. ASYNC TESTING RULES (MANDATORY):
    - ALL async functions MUST have @pytest.mark.asyncio decorator
    - Use AsyncMock exclusively for async functions/methods
+   - ALWAYS await async function calls - NEVER leave coroutines unawaited
+   - NEVER iterate directly over a coroutine - await it first
+   - For collections of async results, use list comprehension with await:
+     ```python
+     # CORRECT
+     results = [await some_async_func() for _ in range(5)]
+     
+     # WRONG - TypeError: argument of type 'coroutine' is not iterable
+     results = await some_async_func()
+     for item in results:  # Error if results is a coroutine
+         ...
+     ```
    - For async context managers:
      ```python
      mock_session = AsyncMock()
      mock_response = AsyncMock()
      mock_session.request.return_value.__aenter__.return_value = mock_response
      ```
-   - ALWAYS await async calls in tests:
-     ```python
-     result = await radio_browser.stats()  # CORRECT
-     result = radio_browser.stats()       # WRONG - returns coroutine
-     ```
+   - When mocking methods that return awaitable objects
    
-3. MOCKING GUIDELINES:
+4. MOCKING GUIDELINES:
    - Mock at the import location, not definition location
    - Use proper mock types: AsyncMock for async, MagicMock for sync
    - Set return_value or side_effect appropriately
    - For sequential calls, use side_effect with a list
    - Mock ALL external dependencies (APIs, databases, file systems)
 
-4. FIXTURES:
+5. FIXTURES:
    - Create fixtures for complex test setup
    - Use pytest.fixture decorator
    - Never call fixtures directly - pass as parameters
    - Consider fixture scope (function, class, module)
    - Name fixtures descriptively
 
-5. ERROR HANDLING:
+6. ERROR HANDLING:
    - Test both success and error cases
    - Use pytest.raises for expected exceptions
    - Mock timeouts, connection errors, and API failures
    - Verify error messages and types
 
-6. DATACLASS/MODEL TESTING:
+7. DATACLASS/MODEL TESTING:
    - Include ALL required fields in mock data
    - Match field types exactly
    - Handle Optional/Union types properly
+   - Never mock non-existent fields
    - Test serialization/deserialization if relevant
-
-7. TEST COVERAGE REQUIREMENTS:
-   - Test each branch of conditional logic
-   - Test edge cases (empty inputs, None values, errors)
-   - Test boundary conditions
-   - Verify all side effects (calls, state changes)
+   - Double-check field names against source code
 
 8. HTTP/API TESTING:
    - Mock API responses completely
@@ -586,48 +599,16 @@ CRITICAL TEST GENERATION RULES:
     - Check state changes
     - Validate side effects
 
-EXAMPLE TEST PATTERNS:
-
-1. Async function testing:
-```python
-@pytest.mark.asyncio
-async def test_async_function():
-    # Setup
-    mock_client = AsyncMock()
-    mock_response = AsyncMock()
-    mock_client.get.return_value = mock_response
-    
-    # Test
-    result = await async_function(mock_client)
-    
-    # Verify
-    assert result == expected
-    mock_client.get.assert_called_once_with(url)
-```
-
-2. Exception testing:
-```python
-@pytest.mark.asyncio
-async def test_handles_timeout():
-    mock_client = AsyncMock()
-    mock_client.get.side_effect = asyncio.TimeoutError()
-    
-    with pytest.raises(TimeoutError):
-        await async_function(mock_client)
-```
-
-3. Context manager testing:
-```python
-def test_context_manager():
-    mock_ctx = MagicMock()
-    mock_ctx.__enter__.return_value = "resource"
-    
-    with mock_ctx as resource:
-        assert resource == "resource"
-    
-    mock_ctx.__enter__.assert_called_once()
-    mock_ctx.__exit__.assert_called_once()
-```
+COMMON PITFALLS TO AVOID:
+- Never use regular Mock for async functions
+- Don't forget to await async calls
+- Never attempt to iterate over an unawaited coroutine
+- Don't assume field names - check the source code 
+- Include ALL required fields in model instances
+- Don't call fixtures directly
+- Avoid magic numbers - use constants
+- Don't test implementation details
+- Don't skip error cases
 
 OUTPUT FORMAT:
 - IMPORTANT: Return ONLY Python code, NOT Markdown. DO NOT USE TRIPLE BACKTICKS (```).
@@ -635,14 +616,6 @@ OUTPUT FORMAT:
 - Define fixtures if needed
 - Write test functions
 - Include docstrings explaining what each test does
-
-COMMON PITFALLS TO AVOID:
-- Never use regular Mock for async functions
-- Don't call fixtures directly
-- Avoid magic numbers - use constants
-- Don't test implementation details
-- Don't skip error cases
-- Don't forget to await async calls
 
 Generate complete, production-ready test code following all these guidelines.
 """
