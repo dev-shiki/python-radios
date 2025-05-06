@@ -641,7 +641,7 @@ Follow these best practices when writing the tests:
 Provide complete, working test code with no explanations or comments outside of code.
 ```python
 """
-    
+        print(prompt)
         return prompt
     
     def save_test_file(self, file_path: Path, test_code: str) -> Path:
