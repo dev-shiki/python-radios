@@ -24,6 +24,8 @@ class UniversalTestGenerator:
         self.api_key = api_key
         self.coverage_threshold = coverage_threshold
         self.openai_client = self._setup_openai()
+        self.module_name = ""
+        self.test_file_path = None
     
     def _setup_openai(self):
         """Configure OpenAI client for various providers."""
@@ -86,6 +88,10 @@ class UniversalTestGenerator:
         Returns:
             Generated test code
         """
+        # Set module name and test file path
+        self.module_name = self._get_module_name(file_path)
+        self.test_file_path = self._get_test_path(file_path)
+        
         # Read the source code
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -94,13 +100,13 @@ class UniversalTestGenerator:
             print(f"Error reading {file_path}: {e}")
             return ""
         
-        # Create prompt
+        # Create prompt with enhanced analysis
         prompt = self._create_prompt(file_path, source_code)
         
         # Generate tests
         try:
             response = self.openai_client.chat.completions.create(
-                model="google/gemini-2.0-flash-001",  # Or your preferred model
+                model="google/gemini-1.5-pro-001",  # Or your preferred model
                 messages=[
                     {"role": "system", "content": self._get_system_prompt()},
                     {"role": "user", "content": prompt}
@@ -124,7 +130,28 @@ class UniversalTestGenerator:
 
 Always deliver production-ready, minimal test code that achieves maximum coverage."""
 
-    def _get_function_args(node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> List[Dict]:
+    def _get_module_name(self, file_path: Path) -> str:
+        """Convert file path to importable module name."""
+        current_dir = Path.cwd()
+        
+        try:
+            rel_path = file_path.relative_to(current_dir)
+        except ValueError:
+            rel_path = file_path
+        
+        parts = list(rel_path.parts)
+        
+        # Handle src directory
+        if parts and parts[0] == "src":
+            parts.pop(0)
+        
+        # Remove .py extension
+        if parts and parts[-1].endswith('.py'):
+            parts[-1] = parts[-1][:-3]  # Remove .py extension
+        
+        return ".".join(parts)
+
+    def _get_function_args(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> List[Dict]:
         """Extract function arguments with their types and defaults."""
         args = []
         
@@ -162,13 +189,13 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
         
         return args
 
-    def _extract_return_type(node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> Optional[str]:
+    def _extract_return_type(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> Optional[str]:
         """Extract return type annotation from function definition."""
         if node.returns:
             return ast.unparse(node.returns)
         return None
 
-    def _extract_uncovered_functions(source_code: str) -> Dict[str, Dict]:
+    def _extract_uncovered_functions(self, source_code: str) -> Dict[str, Dict]:
         """Extract functions that need testing from source code."""
         uncovered_functions = {}
         
@@ -183,10 +210,10 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
                         continue
                     
                     uncovered_functions[func_name] = {
-                        "args": _get_function_args(node),
+                        "args": self._get_function_args(node),
                         "is_async": isinstance(node, ast.AsyncFunctionDef),
                         "docstring": ast.get_docstring(node) or "",
-                        "return_type": _extract_return_type(node),
+                        "return_type": self._extract_return_type(node),
                         "line_no": node.lineno
                     }
                 
@@ -202,11 +229,11 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
                             
                             full_name = f"{class_name}.{method_name}"
                             uncovered_functions[full_name] = {
-                                "args": _get_function_args(method),
+                                "args": self._get_function_args(method),
                                 "is_async": isinstance(method, ast.AsyncFunctionDef),
                                 "docstring": ast.get_docstring(method) or "",
                                 "class_name": class_name,
-                                "return_type": _extract_return_type(method),
+                                "return_type": self._extract_return_type(method),
                                 "line_no": method.lineno
                             }
         except Exception as e:
@@ -214,7 +241,7 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
         
         return uncovered_functions
 
-    def _extract_model_structure(source_code: str) -> Dict[str, Dict[str, Dict]]:
+    def _extract_model_structure(self, source_code: str) -> Dict[str, Dict[str, Dict]]:
         """Extract dataclass/model structures from the code."""
         models = {}
         
@@ -268,7 +295,7 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
         
         return models
 
-    def _extract_detailed_function_info(uncovered_functions: Dict[str, Dict]) -> str:
+    def _extract_detailed_function_info(self, uncovered_functions: Dict[str, Dict]) -> str:
         """Create detailed text description of functions needing tests."""
         details = []
         
@@ -304,7 +331,7 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
         
         return "\n".join(details)
 
-    def _generate_mock_value_for_type(field_type: str) -> str:
+    def _generate_mock_value_for_type(self, field_type: str) -> str:
         """Generate appropriate mock values based on type hints."""
         field_type = field_type.lower()
         
@@ -336,13 +363,13 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
                 inner_type = inner_type.split(',')[0].strip()
             inner_type = inner_type.replace('none', '').strip()
             
-            return _generate_mock_value_for_type(inner_type)
+            return self._generate_mock_value_for_type(inner_type)
         
         elif 'list[' in field_type:
             # Extract inner type from List[Type]
             inner_type = re.search(r'list\[(.*?)\]', field_type)
             if inner_type:
-                item_value = _generate_mock_value_for_type(inner_type.group(1))
+                item_value = self._generate_mock_value_for_type(inner_type.group(1))
                 return f'[{item_value}]'
             return '["item1", "item2"]'
         
@@ -351,8 +378,8 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
             types = re.search(r'dict\[(.*?)\]', field_type)
             if types:
                 key_type, value_type = types.group(1).split(',')
-                key_value = _generate_mock_value_for_type(key_type.strip())
-                value_value = _generate_mock_value_for_type(value_type.strip())
+                key_value = self._generate_mock_value_for_type(key_type.strip())
+                value_value = self._generate_mock_value_for_type(value_type.strip())
                 return f'{{{key_value}: {value_value}}}'
             return '{"key": "value"}'
         
@@ -363,7 +390,7 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
         
         return '"mock_value"'
 
-    def _identify_used_libraries(source_code: str) -> List[str]:
+    def _identify_used_libraries(self, source_code: str) -> List[str]:
         """Identify external libraries used in the module."""
         libraries = set()
         
@@ -390,22 +417,12 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
         
         return sorted(list(libraries))
 
-    def _create_prompt(self, source_file: Path, 
-                            source_code: str, 
-                            uncovered_functions: Dict[str, Dict] = None,
-                            models: Dict[str, Dict] = None,
-                            used_libraries: List[str] = None) -> str:
+    def _create_prompt(self, source_file: Path, source_code: str) -> str:
         """Create a prompt for generating tests."""
-        if uncovered_functions is None:
-            uncovered_functions = self._extract_uncovered_functions(source_code)
-        
-        # If models not provided, extract them
-        if models is None:
-            models = self._extract_model_structure(source_code)
-        
-        # If libraries not provided, extract them
-        if used_libraries is None:
-            used_libraries = self._identify_used_libraries(source_code)
+        # Extract information
+        uncovered_functions = self._extract_uncovered_functions(source_code)
+        models = self._extract_model_structure(source_code)
+        used_libraries = self._identify_used_libraries(source_code)
         
         # Extract function details
         function_details = self._extract_detailed_function_info(uncovered_functions)
@@ -577,29 +594,30 @@ Generate complete, production-ready test code following all these guidelines.
     
         return prompt
     
-    def save_test_file(self, source_file: Path, test_code: str) -> Path:
+    def save_test_file(self, file_path: Path, test_code: str) -> Path:
         """
         Save the generated test file.
         
         Args:
-            source_file: Original Python file
+            file_path: Original Python file
             test_code: Generated test code
             
         Returns:
             Path to the saved test file
         """
-        # Determine test file path
-        test_path = self._get_test_path(source_file)
+        # Determine test file path if not already set
+        if not self.test_file_path:
+            self.test_file_path = self._get_test_path(file_path)
         
         # Create directories if needed
-        test_path.parent.mkdir(parents=True, exist_ok=True)
+        self.test_file_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Save the test file
         try:
-            with open(test_path, 'w', encoding='utf-8') as f:
+            with open(self.test_file_path, 'w', encoding='utf-8') as f:
                 f.write(test_code)
-            print(f"Saved test file: {test_path}")
-            return test_path
+            print(f"Saved test file: {self.test_file_path}")
+            return self.test_file_path
         except Exception as e:
             print(f"Error saving test file: {e}")
             return None
