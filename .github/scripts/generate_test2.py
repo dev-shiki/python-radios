@@ -625,12 +625,17 @@ TEST GENERATION PRIORITIES:
    - Match field types precisely (bool, int, str, Optional[str], etc.)
 
 3. ASYNC HANDLING:
-   - CRITICAL: Never iterate directly over coroutine objects
-   - Always await coroutines before accessing attributes or iterating
-   - For functions that return iterable results, first await the coroutine: 
-     result = await async_function()  # Then iterate: for item in result
-   - Use AsyncMock for any async method or function
-   - Ensure mock responses from async functions are awaitable
+   - Await coroutines before any operation: `result = await coro()` 
+   - Never iterate over unwrapped coroutines
+   - For context managers:
+     * Distinguish between regular and async context managers
+     * Use `with` for regular context managers
+     * Use `async with` only with proper async context manager objects
+     * Never use `async with` on plain coroutines
+   - When mocking:
+     * Use AsyncMock for async functions
+     * For context manager mocks, configure both `__aenter__` and `__aexit__`
+     * Ensure all async mock returns are awaitable
 
 4. API ENDPOINTS:
    - Match URL path structure EXACTLY (including all path segments)
