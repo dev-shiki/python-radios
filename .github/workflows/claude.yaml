@@ -172,32 +172,12 @@ jobs:
           poetry run python analyze_test_results.py >> $GITHUB_OUTPUT
       
       # Step 6: Refine tests based on feedback (only if needed)
-      - name: 🔄 Refine tests based on coverage gaps and errors
-        if: steps.analyze-results.outputs.needs_refinement == 'true'
+      - name: 🔄 Refine failing tests
         run: |
-          cat > refine_tests.py << 'EOF'
-          import json
-          import os
-          from pathlib import Path
-          
-          def refine_tests():
-              with open('coverage-analysis.json', 'r') as f:
-                  analysis = json.load(f)
-              
-              for issue in analysis.get('still_low', []):
-                  file_path = issue['file']
-                  file_name = Path(file_path).stem
-                  test_file = f"tests/test_{file_name}.py"
-                  
-                  if os.path.exists(test_file):
-                      print(f"Refining tests for {file_path} (coverage: {issue['coverage']}%)")
-                      # Call AI to refine the test file
-                      os.system(f"poetry run python .github/scripts/generate_test2.py --module {file_path} --refine --test-file {test_file}")
-          
-          refine_tests()
-          EOF
-          
-          poetry run python refine_tests.py
+          # Run the test refiner directly
+          poetry run python .github/scripts/refine_tests.py
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       
       # Step 7: Final validation
       - name: 🔍 Final test validation
