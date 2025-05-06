@@ -618,6 +618,9 @@ TEST GENERATION PRIORITIES:
 
 2. MODELS & DATA: 
    - Include ALL fields in model instances (observe model definitions carefully)
+   - When working with enums, always use the exact enum member names
+   - Never directly use the string values of enums
+   - Pay special attention to underscores and capitalization in enum names
    - Maintain exact case sensitivity in field names
    - Match field types precisely (bool, int, str, Optional[str], etc.)
 
