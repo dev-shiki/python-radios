@@ -519,60 +519,60 @@ TEST GENERATION REQUIREMENTS:
 1. Write ONLY valid Python test code with no explanations or markdown
 2. Include proper imports for ALL required packages and modules:
    - Import ALL necessary dependencies including exception classes (e.g., 'aiodns.error.DNSError')
-   - Import project-specific exceptions (e.g., 'radios.exceptions.RadioBrowserConnectionError')
    - ALWAYS import 'orjson' when working with JSON data
-   - Import all libraries needed for mocking (unittest.mock)
-3. Import the module under test correctly
+   - Import all relevant project exceptions
+   - Import unittest.mock components explicitly for all mocking needs
+3. Import the module under test correctly with proper namespace
 4. Focus on COMPLETE test coverage for functions with low coverage
-5. For mock responses with model fields:
-   - Include ALL required fields in mock data, especially: 'supported_version', 'code', 'bitrate', 'stationcount', 'change_uuid'
-   - Match exact field NAMES and CASE, especially 'stationcount' vs 'STATIONCOUNT'
+5. For ALL models (Stats, Country, Language, Tag, Station), ensure:
+   - Stats model MUST include 'supported_version' of type int
+   - Country model MUST include 'stationcount' attribute
+   - Tag model MUST include 'stationcount' attribute
+   - Language model MUST include 'code' of type Optional[str]
+   - Station model MUST include 'bitrate' and 'change_uuid' fields
+   - ALWAYS verify model field names match EXACTLY what's in the error messages
    - Match field TYPES exactly (int, str, bool, Optional[str], etc.)
-   - Always include model-required fields even if they seem optional
-   - Ensure complete model instances pass all mashumaro validation
-6. For proper mocking:
-   - Mock objects must be MagicMock/AsyncMock instances, not functions
-   - Use patch correctly to ensure assert_called_once works
-   - Always use AsyncMock for mocking async functions
-   - Set proper return_value or side_effect for mocks
-   - Ensure mock has all methods that will be called on it
-7. For API endpoints:
-   - Use EXACT endpoint paths from source code (e.g., 'stations/byuuid/' not 'stations/uuid/')
-   - Double-check all URL paths in both mock expectations and test code
-   - Verify parameters match expected format exactly
-   - Pay special attention to endpoints like 'stations/search/byname/' vs 'stations/search/name/'
-8. For JSON and serialization:
-   - Validate JSON structure to avoid JSONDecodeError
-   - Ensure mock data has correct type before serialization
-   - Include proper error handling for serialization issues
-   - Check for malformed JSON that might cause orjson.JSONDecodeError
-   - Ensure string escaping is handled properly in JSON data
-9. For asynchronous code:
-   - Use pytest.mark.asyncio for async tests
-   - Properly await all coroutines
-   - Handle async context managers correctly
-   - Use correct async patterns when testing exceptions
-10. For exception testing:
-    - Mock correct exception types (e.g., aiodns.error.DNSError)
-    - Import all required exception classes
-    - Set up proper side_effects for error simulation
-    - For DNS errors, correctly mock aiodns.error.DNSError
+   - Include ALL required fields in EVERY model instance
+6. For JSON data handling:
+   - Ensure ALL JSON strings are properly formatted without malformed characters
+   - Escape quotes and special characters correctly in JSON strings
+   - Manually review string templates to avoid malformed JSON
+   - ALWAYS validate JSON structure before using it in tests
+   - Use orjson.dumps() and orjson.loads() consistently
+7. For asynchronous code:
+   - ALWAYS await coroutines properly and NEVER iterate over them directly
+   - Use pytest.mark.asyncio decorator for ALL async tests
+   - Convert all async mock return values to awaitable objects
+   - Use AsyncMock instead of MagicMock for any async function
+8. For mocking DNS queries and requests:
+   - Set side_effect or return_value to properly handle multiple calls
+   - Use call_count=1 restrictions when testing with assert_called_once
+   - For SRV record queries, ensure mock is configured to handle exactly 5 calls
+   - Mock ALL external services including DNS lookups and HTTP requests
+9. For API endpoints:
+   - Use EXACT endpoint paths from source code
+   - Double-check URLs between 'stations/search/byname/' vs 'stations/search/name/'
+   - Ensure path consistency between tests and assertions
+10. Implement proper test isolation:
+    - Reset all mocks between tests
+    - Use separate mock instances for each test
+    - Avoid mock configuration that impacts other tests
 11. Create descriptive test function names that indicate what is being tested
 12. When asserting values, ensure case sensitivity and exact type matching
 13. IMPORTANT: DO NOT use pytest-mock fixtures (mocker). Use unittest.mock directly:
     ```python
-    from unittest.mock import patch, AsyncMock, MagicMock
+    from unittest.mock import patch, AsyncMock, MagicMock, call
     ```
 14. Use class-level fixtures with self parameter for class tests
-15. For all mock responses that create model instances:
-    - Always include a complete set of fields
-    - Never skip any required fields in models
+15. CRITICAL: For DNS query mocks that should be called only once:
+    - Use proper side_effect configuration to limit calls
+    - Consider using reset_mock() between test sections
+    - For tests expecting one call with 'query' method, explicitly handle multiple calls
 
 RESULT FORMAT (just the code, no explanations):
 ```python
 # Complete test file with imports, fixtures, and test functions
 ```
-"""
     
         return prompt
     
