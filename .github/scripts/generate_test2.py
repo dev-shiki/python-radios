@@ -617,25 +617,20 @@ TEST GENERATION PRIORITIES:
 1. CORRECTNESS: Write syntactically valid Python test code with proper imports and correct module references.
 
 2. MODELS & DATA: 
-   - Include ALL fields in model instances (observe model definitions carefully)
-   - When working with enums, always use the exact enum member names
-   - Never directly use the string values of enums
-   - Pay special attention to underscores and capitalization in enum names
-   - Maintain exact case sensitivity in field names
+   - Read model definitions carefully to use exact attribute names
+   - Be precise with capitalization and formatting (lowercase/uppercase, with/without underscores)
+   - When using enums or constants, reference the exact member names as defined in source code
+   - For fields with variants, use the exact form from the model definition
    - Match field types precisely (bool, int, str, Optional[str], etc.)
 
 3. ASYNC HANDLING:
-   - Await coroutines before any operation: `result = await coro()` 
-   - Never iterate over unwrapped coroutines
-   - For context managers:
-     * Distinguish between regular and async context managers
-     * Use `with` for regular context managers
-     * Use `async with` only with proper async context manager objects
-     * Never use `async with` on plain coroutines
-   - When mocking:
-     * Use AsyncMock for async functions
-     * For context manager mocks, configure both `__aenter__` and `__aexit__`
-     * Ensure all async mock returns are awaitable
+   - Key principle: Always fully resolve coroutines before using their results
+   - For any async function call: result = await async_function()
+   - Never use a coroutine directly in iteration, attribute access, or context management
+   - Pattern for iteration: results = await async_iter_function(); for item in results: ...
+   - Pattern for attribute access: obj = await async_function(); obj.attribute
+   - Pattern for context management: async with (await get_context_manager()): ...
+   - Always use AsyncMock for async functions and methods
 
 4. API ENDPOINTS:
    - Match URL path structure EXACTLY (including all path segments)
