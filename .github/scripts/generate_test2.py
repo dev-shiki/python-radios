@@ -618,7 +618,6 @@ Before writing tests, carefully analyze:
 2. Constant and enum definitions - note exact names and string values
 3. API endpoint formats - check exact URL structures in implementation
 4. JSON serialization methods - note how data is formatted
-5. Resource lifecycle - understand when resources need to be closed
 
 When writing tests:
 1. Use unittest.mock directly (not pytest-mock fixtures):
@@ -640,18 +639,18 @@ When writing tests:
    - Use consistent formats between expectations and actual calls
 
 5. For JSON data:
-   - Thoroughly validate all mock JSON before using it
-   - Test your JSON strings by parsing them with orjson.loads()
-   - Properly escape quotes, backslashes, and special characters in JSON strings
-   - Avoid characters that would break JSON formatting
-   - Use raw strings (r"") for complex JSON to prevent escaping issues
+   - Validate all mock JSON strings to ensure they're valid JSON
+   - Test JSON strings with orjson.loads() before using in tests
+   - Properly escape quotes and special characters
+   - Avoid control characters in JSON strings
+   - Use string formatting carefully to prevent malformed JSON
 
-6. For async code:
+6. For async code and resource cleanup:
    - Use AsyncMock for async functions
    - Always await coroutines before using results
-   - Verify resource cleanup with assert_awaited_once() for .close() methods
-   - Test both normal and error paths for resource cleanup
-   - Ensure async context managers properly call cleanup methods
+   - For resources with close() methods, explicitly test they're awaited
+   - For async context managers, verify __aexit__ calls close()
+   - Use assert_awaited_once() for verifying async method calls
 
 Include appropriate fixtures, mocks, and assertions based on your analysis.
 
