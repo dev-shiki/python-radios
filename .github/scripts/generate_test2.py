@@ -577,7 +577,7 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
             
             # Find any const declarations in top-level variable assignments
             # This is for non-enum constants that might be important for tests
-            if file_path.name == 'const.py' or 'const' in file_path.name:
+            if file_path.name == 'const.py' or 'const' or '.const' in file_path.name:
                 for node in ast.iter_child_nodes(tree):
                     if isinstance(node, ast.Assign):
                         # Target is a name and value is a simple constant
