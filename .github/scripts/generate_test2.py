@@ -628,6 +628,11 @@ TEST GENERATION REQUIREMENTS:
 6. For asynchronous code:
    - Use appropriate async patterns throughout
    - Handle coroutines correctly in all contexts
+   - NEVER iterate directly over coroutines (to avoid "TypeError: argument of type 'coroutine' is not iterable")
+   - Always properly await every coroutine before using its result
+   - Use AsyncMock for mocking any async functions
+   - When mocking async functions, ensure return values are awaitable with AsyncMock(return_value=value)
+   - For testing async code that returns lists or iterables, ensure you await the coroutine before iterating
 7. For mocking external services:
    - Configure mocks to handle the exact number of expected calls
    - Set up appropriate return values and side effects
@@ -651,6 +656,11 @@ Examine the source code and model references carefully to identify:
 - Asynchronous function behavior
 - External service interaction patterns
 - Error handling approaches
+
+COMMON ASYNC TESTING ISSUES TO AVOID:
+- TypeError: argument of type 'coroutine' is not iterable - Always await coroutines before iterating
+- TypeError: object MagicMock can't be used in 'await' expression - Use AsyncMock instead
+- AssertionError: Expected 'query' to be called once. Called 5 times - Configure mock side_effects properly
 
 RESULT FORMAT (just the code, no explanations):
 ```python
