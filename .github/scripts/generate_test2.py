@@ -546,18 +546,7 @@ ASYNC MOCKING RULES (CRITICAL):
     mock_session.request.return_value.aenter.return_value = mock_response
     mock_session.request.return_value.aexit.return_value = None
     ```
-3. For mocking aiohttp.ClientSession or similar async clients:
-    ```python
-    # Create the response mock first
-    mock_response = AsyncMock()
-    mock_response.text.return_value = '{"key": "value"}'
-    mock_response.json.return_value = {"key": "value"}
 
-    # Then set up the session mock correctly
-    mock_session.request = AsyncMock()
-    mock_session.request.return_value = AsyncMock()
-    mock_session.request.return_value.__aenter__.return_value = mock_response
-    ```
 4. For mocked errors, use side_effect:
     ```python
     mock_session.request.side_effect = aiohttp.ClientError()
@@ -568,10 +557,6 @@ ASYNC MOCKING RULES (CRITICAL):
     ```python
     result = await radio_browser.stats()  # CORRECT
     # NOT: result = radio_browser.stats()  # WRONG - would return a coroutine
-    ```
-7. For methods that return lists or generators, ensure the mock returns the appropriate structure:
-    ```python
-    mock_response.text.return_value = '[{"id": 1}, {"id": 2}]'
     ```
 
 CRITICAL PROBLEMS TO AVOID:
