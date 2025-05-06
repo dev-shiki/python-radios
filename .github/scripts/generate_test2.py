@@ -405,7 +405,7 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
                 potential_paths.append(file_path)
         
         # 2. Common model files in the same package
-        common_model_files = ['models.py', 'schemas.py', 'entities.py', 'types.py', 'dataclasses.py']
+        common_model_files = ['const.py','models.py', 'schemas.py', 'entities.py', 'types.py', 'dataclasses.py']
         for model_file in common_model_files:
             file_path = source_dir / model_file
             if file_path.exists():
@@ -472,7 +472,7 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
             
             # Quick check for common model indicators
             indicators = [
-                'enum', 'class', '@dataclass', 'mashumaro', 'BaseModel', 
+                'class', '@dataclass', 'mashumaro', 'BaseModel', 
                 'DataClassJSONMixin', 'SerializationMixin', 'field'
             ]
             
@@ -509,89 +509,66 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
 
     def extract_model_definitions(self, file_path: Path) -> str:
         """
-        Extract model class and enum definitions from a file.
+        Extract model class definitions from a file.
         
         Args:
             file_path: Path to the file
             
         Returns:
-            String containing model class and enum definitions
+            String containing model class definitions
         """
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
             tree = ast.parse(content)
-            definitions = []
+            model_definitions = []
             
-            # Get imports that might be needed for the models and enums
+            # Get imports that might be needed for the models
             imports = []
             for node in ast.walk(tree):
                 if isinstance(node, (ast.Import, ast.ImportFrom)):
                     imports.append(ast.unparse(node))
             
-            # Extract class definitions 
+            # Extract class definitions that appear to be models
             for node in ast.iter_child_nodes(tree):
                 if isinstance(node, ast.ClassDef):
-                    should_include = False
-                    
-                    # Check if it's an enum
-                    for base in node.bases:
-                        base_str = ast.unparse(base)
-                        if 'Enum' in base_str:
-                            should_include = True
-                            break
+                    # Check if it's a model class
+                    is_model = False
                     
                     # Check decorators
-                    if not should_include:
-                        for decorator in node.decorator_list:
-                            decorator_str = ast.unparse(decorator)
-                            if any(model_dec in decorator_str for model_dec in ['dataclass', 'BaseModel']):
-                                should_include = True
-                                break
+                    for decorator in node.decorator_list:
+                        decorator_str = ast.unparse(decorator)
+                        if any(model_dec in decorator_str for model_dec in ['enum', 'dataclass', 'BaseModel']):
+                            is_model = True
+                            break
                     
-                    # Check base classes for models
-                    if not should_include:
+                    # Check base classes
+                    if not is_model:
                         for base in node.bases:
                             base_str = ast.unparse(base)
                             if any(model_base in base_str for model_base in 
-                                ['DataClassJSONMixin', 'BaseModel', 'SerializationMixin']):
-                                should_include = True
+                                  ['enum', 'DataClassJSONMixin', 'BaseModel', 'SerializationMixin']):
+                                is_model = True
                                 break
                     
                     # Check for model-like structure (many typed attributes)
-                    if not should_include:
+                    if not is_model:
                         typed_attrs = sum(1 for item in node.body 
                                         if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name))
                         if typed_attrs >= 3:  # If class has several typed attributes, it's likely a model
-                            should_include = True
+                            is_model = True
                     
-                    if should_include:
-                        definitions.append(ast.unparse(node))
-                
-                # Also extract bare enum definitions (in case they're not in a class)
-                elif isinstance(node, ast.Assign):
-                    for target in node.targets:
-                        if isinstance(target, ast.Name) and 'enum' in str(target.id).lower():
-                            definitions.append(ast.unparse(node))
+                    if is_model:
+                        model_definitions.append(ast.unparse(node))
             
-            # Find any const declarations in top-level variable assignments
-            # This is for non-enum constants that might be important for tests
-            if file_path.name == 'const.py' or 'const' or '.const' in file_path.name:
-                for node in ast.iter_child_nodes(tree):
-                    if isinstance(node, ast.Assign):
-                        # Target is a name and value is a simple constant
-                        for target in node.targets:
-                            if isinstance(target, ast.Name) and isinstance(node.value, (ast.Constant, ast.Str, ast.Num)):
-                                definitions.append(ast.unparse(node))
-            
-            # Combine imports and definitions
+            # Combine imports and model definitions
             unique_imports = list(dict.fromkeys(imports))  # Remove duplicates while preserving order
-            model_code = "\n".join(unique_imports + [""] + definitions)
+            model_code = "\n".join(unique_imports + [""] + model_definitions)
             
             return model_code
         except Exception as e:
-            print(f"Error extracting definitions from {file_path}: {e}")
+            print(f"Error extracting model definitions from {file_path}: {e}")
             return ""
 
     def _create_prompt(self, source_file: Path, source_code: str) -> str:
@@ -627,6 +604,8 @@ SOURCE CODE:
 ```python
 {source_code}
 ```
+
+{model_reference_code}
 
 FUNCTIONS REQUIRING TESTS:
 {function_details}
