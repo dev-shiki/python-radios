@@ -620,11 +620,19 @@ Before writing tests, analyze:
 4. Async patterns and resource management
 
 Create tests that:
-- Have correct imports and fixtures
+- Use unittest.mock directly instead of pytest-mock fixtures
+- Replace any use of 'mocker' fixture with direct patch/MagicMock/AsyncMock imports
+- Define all necessary fixtures explicitly in the test file
 - Follow good pytest practices
 - Properly handle async operations
 - Accurately mock external services
 - Verify all edge cases and error paths
+
+Important testing patterns:
+- Import directly: from unittest.mock import patch, MagicMock, AsyncMock
+- Use patch as decorator or context manager
+- Define your own fixtures instead of relying on external plugins when possible
+- For HTTP mocking, create appropriate fixtures with proper teardown
 
 Include appropriate fixtures, mocks, and assertions based on your analysis.
 
