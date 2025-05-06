@@ -509,66 +509,89 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
 
     def extract_model_definitions(self, file_path: Path) -> str:
         """
-        Extract model class definitions from a file.
+        Extract model class and enum definitions from a file.
         
         Args:
             file_path: Path to the file
             
         Returns:
-            String containing model class definitions
+            String containing model class and enum definitions
         """
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
             tree = ast.parse(content)
-            model_definitions = []
+            definitions = []
             
-            # Get imports that might be needed for the models
+            # Get imports that might be needed for the models and enums
             imports = []
             for node in ast.walk(tree):
                 if isinstance(node, (ast.Import, ast.ImportFrom)):
                     imports.append(ast.unparse(node))
             
-            # Extract class definitions that appear to be models
+            # Extract class definitions 
             for node in ast.iter_child_nodes(tree):
                 if isinstance(node, ast.ClassDef):
-                    # Check if it's a model class
-                    is_model = False
+                    should_include = False
                     
-                    # Check decorators
-                    for decorator in node.decorator_list:
-                        decorator_str = ast.unparse(decorator)
-                        if any(model_dec in decorator_str for model_dec in ['dataclass', 'BaseModel']):
-                            is_model = True
+                    # Check if it's an enum
+                    for base in node.bases:
+                        base_str = ast.unparse(base)
+                        if 'Enum' in base_str:
+                            should_include = True
                             break
                     
-                    # Check base classes
-                    if not is_model:
+                    # Check decorators
+                    if not should_include:
+                        for decorator in node.decorator_list:
+                            decorator_str = ast.unparse(decorator)
+                            if any(model_dec in decorator_str for model_dec in ['dataclass', 'BaseModel']):
+                                should_include = True
+                                break
+                    
+                    # Check base classes for models
+                    if not should_include:
                         for base in node.bases:
                             base_str = ast.unparse(base)
                             if any(model_base in base_str for model_base in 
-                                  ['DataClassJSONMixin', 'BaseModel', 'SerializationMixin']):
-                                is_model = True
+                                ['DataClassJSONMixin', 'BaseModel', 'SerializationMixin']):
+                                should_include = True
                                 break
                     
                     # Check for model-like structure (many typed attributes)
-                    if not is_model:
+                    if not should_include:
                         typed_attrs = sum(1 for item in node.body 
                                         if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name))
                         if typed_attrs >= 3:  # If class has several typed attributes, it's likely a model
-                            is_model = True
+                            should_include = True
                     
-                    if is_model:
-                        model_definitions.append(ast.unparse(node))
+                    if should_include:
+                        definitions.append(ast.unparse(node))
+                
+                # Also extract bare enum definitions (in case they're not in a class)
+                elif isinstance(node, ast.Assign):
+                    for target in node.targets:
+                        if isinstance(target, ast.Name) and 'enum' in str(target.id).lower():
+                            definitions.append(ast.unparse(node))
             
-            # Combine imports and model definitions
+            # Find any const declarations in top-level variable assignments
+            # This is for non-enum constants that might be important for tests
+            if file_path.name == 'const.py' or 'const' in file_path.name:
+                for node in ast.iter_child_nodes(tree):
+                    if isinstance(node, ast.Assign):
+                        # Target is a name and value is a simple constant
+                        for target in node.targets:
+                            if isinstance(target, ast.Name) and isinstance(node.value, (ast.Constant, ast.Str, ast.Num)):
+                                definitions.append(ast.unparse(node))
+            
+            # Combine imports and definitions
             unique_imports = list(dict.fromkeys(imports))  # Remove duplicates while preserving order
-            model_code = "\n".join(unique_imports + [""] + model_definitions)
+            model_code = "\n".join(unique_imports + [""] + definitions)
             
             return model_code
         except Exception as e:
-            print(f"Error extracting model definitions from {file_path}: {e}")
+            print(f"Error extracting definitions from {file_path}: {e}")
             return ""
 
     def _create_prompt(self, source_file: Path, source_code: str) -> str:
