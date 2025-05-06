@@ -637,6 +637,10 @@ KEY REQUIREMENTS:
    - Verify close() methods are called
    - Test context manager exit behavior
 
+2. Define ALL fixtures explicitly:
+   - ALWAYS define any fixtures your tests use 
+   - Include proper fixture scope and teardown as needed
+
 Write only the complete test code with no explanations.
 ```python
 """
