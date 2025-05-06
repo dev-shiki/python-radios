@@ -622,7 +622,10 @@ TEST GENERATION PRIORITIES:
    - Match field types precisely (bool, int, str, Optional[str], etc.)
 
 3. ASYNC HANDLING:
+   - CRITICAL: Never iterate directly over coroutine objects
    - Always await coroutines before accessing attributes or iterating
+   - For functions that return iterable results, first await the coroutine: 
+     result = await async_function()  # Then iterate: for item in result
    - Use AsyncMock for any async method or function
    - Ensure mock responses from async functions are awaitable
 
