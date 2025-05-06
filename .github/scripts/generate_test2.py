@@ -631,7 +631,7 @@ TEST GENERATION REQUIREMENTS:
 6. For asynchronous code:
    - Use appropriate async patterns throughout
    - Handle coroutines correctly in all contexts
-   - NEVER iterate directly over coroutines (to avoid "TypeError: argument of type 'coroutine' is not iterable")
+   - IMPORTANT! NEVER iterate directly over coroutines (to avoid "TypeError: argument of type 'coroutine' is not iterable") 
    - Always properly await every coroutine before using its result
    - Use AsyncMock for mocking any async functions
    - When mocking async functions, ensure return values are awaitable with AsyncMock(return_value=value)
