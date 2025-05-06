@@ -711,7 +711,7 @@ LIBRARY CONTEXT:
 Follow these best practices when writing the tests:
 
 1. First, analyze:
-   * Study model definitions to understand all required fields
+   * Study model and enum definitions to understand all required fields and constants
    * Observe naming conventions and patterns in the code
    * Examine API endpoint structures and formats
    * Note how async code and resources are managed
@@ -726,16 +726,12 @@ Follow these best practices when writing the tests:
    * Using correct constants/enums as defined in the source
    * Properly awaiting async functions and testing cleanup
    * Validating all mock data before use in tests
-   * Matching API endpoint formats exactly]
-   * When working with enums, always use the exact enum member names 
-   * Never directly use the string values of enums
-   * Pay special ATTENTION to error mashumaro.exceptions.MissingField
-   * Maintain exact case sensitivity in field names
-   * Match field types precisely (bool, int, str, Optional[str], etc.)
+   * Matching API endpoint formats exactly
 
-4. For model data:
+4. For model data and enums:
    * Include all required fields with proper types
    * Use exact field names as defined in models
+   * Use proper enum references (e.g., Order.NAME not "name")
    * Ensure proper serialization/deserialization in tests
 
 Provide complete, working test code with no explanations or comments outside of code.
