@@ -625,6 +625,9 @@ TEST GENERATION REQUIREMENTS:
    - Ensure common fields like 'supported_version', 'code', and 'bitrate' are included
    - Match field types exactly with what models expect (int, Optional[str], etc.)
    - When in doubt, include more fields rather than fewer
+   - Pay careful attention to field name CASE SENSITIVITY (uppercase vs lowercase matters)
+   - Include ALL boolean fields in model instances, even those that might seem optional
+   - For data models with serialization, ensure every defined field is present in test data
 6. For asynchronous code:
    - Use appropriate async patterns throughout
    - Handle coroutines correctly in all contexts
@@ -633,6 +636,9 @@ TEST GENERATION REQUIREMENTS:
    - Use AsyncMock for mocking any async functions
    - When mocking async functions, ensure return values are awaitable with AsyncMock(return_value=value)
    - For testing async code that returns lists or iterables, ensure you await the coroutine before iterating
+   - Always AWAIT coroutines before accessing their attributes or methods
+   - Remember that unawaited coroutines don't have the attributes of their resolved values
+   - For objects that expose asynchronous methods, ensure they're properly awaited before use
 7. For mocking external services:
    - Configure mocks to handle the exact number of expected calls
    - Set up appropriate return values and side effects
