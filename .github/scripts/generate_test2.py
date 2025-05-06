@@ -613,31 +613,32 @@ FUNCTIONS REQUIRING TESTS:
 LIBRARY CONTEXT:
 - Used libraries: {', '.join(used_libraries)}
 
-KEY TESTING PATTERNS TO FOLLOW:
+Follow these best practices when writing the tests:
 
-1. Study the code thoroughly first
-   - Analyze how models are defined and used
-   - Understand naming patterns in the codebase
-   - Identify API endpoint structures
-   - Note serialization approaches used
+1. First, analyze:
+   * Study model definitions to understand all required fields
+   * Observe naming conventions and patterns in the code
+   * Examine API endpoint structures and formats
+   * Note how async code and resources are managed
 
-2. Structure tests properly
-   - Use direct imports over fixtures when appropriate
-   - Create clear test methods with descriptive names
-   - Group related test methods logically
+2. Structure your tests with:
+   * Direct imports from unittest.mock (not pytest-mock)
+   * Pytest fixtures defined at appropriate scopes
+   * Clear, descriptive test method names
+   * Logical grouping of related tests
 
-3. Apply testing best practices
-   - Mock external dependencies appropriately
-   - Test both success and error cases
-   - Verify resource cleanup
-   - Follow patterns established in the codebase
+3. Pay careful attention to:
+   * Using correct constants/enums as defined in the source
+   * Properly awaiting async functions and testing cleanup
+   * Validating all mock data before use in tests
+   * Matching API endpoint formats exactly
 
-4. Pay attention to details
-   - Match exact names and formats from code
-   - Handle type conversions appropriately
-   - Validate all data structures before use
+4. For model data:
+   * Include all required fields with proper types
+   * Use exact field names as defined in models
+   * Ensure proper serialization/deserialization in tests
 
-Write only the test code, no explanations.
+Provide complete, working test code with no explanations or comments outside of code.
 ```python
 """
     
