@@ -1,0 +1,10 @@
+{
+  "improvements": [],
+  "still_low": [
+    {
+      "file": "src/radios/radio_browser.py",
+      "coverage": 35.172413793103445
+    }
+  ],
+  "failed_tests": []
+}
