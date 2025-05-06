@@ -660,6 +660,11 @@ TEST GENERATION REQUIREMENTS:
     from unittest.mock import patch, AsyncMock, MagicMock, call
     ```
 12. Use class-level fixtures with self parameter instead of function-level fixtures when testing classes
+13. For assertions:
+    - Ensure proper type matching in assertions (e.g., boolean vs string values)
+    - Pay attention to data type conversions between API responses and assertions
+    - Check that boolean values (True/False) aren't compared with string representations ('true'/'false')
+    - For JSON data containing booleans, verify correct deserialization of true/false values
 
 CRITICAL AREAS TO ANALYZE:
 Examine the source code and model references carefully to identify:
