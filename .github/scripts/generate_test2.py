@@ -520,10 +520,12 @@ TEST GENERATION REQUIREMENTS:
 2. Include proper imports for ALL required packages and modules:
    - Import ALL necessary dependencies including exception classes (e.g., 'aiodns.error.DNSError')
    - Import project-specific exceptions (e.g., 'radios.exceptions.RadioBrowserConnectionError')
+   - ALWAYS import 'orjson' when working with JSON data
+   - Import all libraries needed for mocking (unittest.mock)
 3. Import the module under test correctly
 4. Focus on COMPLETE test coverage for functions with low coverage
 5. For mock responses with model fields:
-   - Include ALL required fields in mock data, including: 'supported_version', 'code', 'bitrate', 'stationcount'
+   - Include ALL required fields in mock data, especially: 'supported_version', 'code', 'bitrate', 'stationcount', 'change_uuid'
    - Match exact field NAMES and CASE, especially 'stationcount' vs 'STATIONCOUNT'
    - Match field TYPES exactly (int, str, bool, Optional[str], etc.)
    - Always include model-required fields even if they seem optional
@@ -538,18 +540,23 @@ TEST GENERATION REQUIREMENTS:
    - Use EXACT endpoint paths from source code (e.g., 'stations/byuuid/' not 'stations/uuid/')
    - Double-check all URL paths in both mock expectations and test code
    - Verify parameters match expected format exactly
+   - Pay special attention to endpoints like 'stations/search/byname/' vs 'stations/search/name/'
 8. For JSON and serialization:
    - Validate JSON structure to avoid JSONDecodeError
    - Ensure mock data has correct type before serialization
    - Include proper error handling for serialization issues
+   - Check for malformed JSON that might cause orjson.JSONDecodeError
+   - Ensure string escaping is handled properly in JSON data
 9. For asynchronous code:
    - Use pytest.mark.asyncio for async tests
    - Properly await all coroutines
    - Handle async context managers correctly
+   - Use correct async patterns when testing exceptions
 10. For exception testing:
     - Mock correct exception types (e.g., aiodns.error.DNSError)
     - Import all required exception classes
     - Set up proper side_effects for error simulation
+    - For DNS errors, correctly mock aiodns.error.DNSError
 11. Create descriptive test function names that indicate what is being tested
 12. When asserting values, ensure case sensitivity and exact type matching
 13. IMPORTANT: DO NOT use pytest-mock fixtures (mocker). Use unittest.mock directly:
