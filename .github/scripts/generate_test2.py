@@ -106,7 +106,7 @@ class UniversalTestGenerator:
         # Generate tests
         try:
             response = self.openai_client.chat.completions.create(
-                model="google/gemini-1.5-pro-001",  # Or your preferred model
+                model="google/gemini-2.0-flash-001",  # Or your preferred model
                 messages=[
                     {"role": "system", "content": self._get_system_prompt()},
                     {"role": "user", "content": prompt}
