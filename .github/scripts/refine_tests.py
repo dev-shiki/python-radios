@@ -120,17 +120,7 @@ TEST FAILURE OUTPUT:
 ```
 
 REQUIREMENTS:
-1. Fix ALL errors in the test file
-2. For missing field errors:
-   - Ensure all required fields are present in mock responses
-   - Match field types exactly (int, str, bool, Optional[str], etc.)
-3. For async errors:
-   - Use AsyncMock instead of MagicMock
-   - Properly await async functions
-4. For endpoint mismatches:
-   - Update URL paths in tests to match what's expected
-5. For JSON errors:
-   - Ensure properly formatted JSON data
+Fix ALL errors in the test file
 
 IMPORTANT:
 - Keep the overall test structure intact
@@ -191,12 +181,6 @@ Return ONLY the complete fixed test file with no explanations.
     def _get_system_prompt(self) -> str:
         """Get system prompt for test refinement."""
         return """You are a Python test refinement specialist focused on fixing failing tests. 
-
-Your key expertise is in:
-1. Fixing missing model fields in serialization
-2. Resolving async function errors
-3. Fixing API endpoint mismatches
-4. Resolving JSON serialization issues
 
 You are especially good at identifying and fixing all issues from raw test failure output.
 

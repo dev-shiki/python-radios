@@ -670,11 +670,6 @@ Examine the source code and model references carefully to identify:
 - External service interaction patterns
 - Error handling approaches
 
-COMMON ASYNC TESTING ISSUES TO AVOID:
-- TypeError: argument of type 'coroutine' is not iterable - Always await coroutines before iterating
-- TypeError: object MagicMock can't be used in 'await' expression - Use AsyncMock instead
-- AssertionError: Expected 'query' to be called once. Called 5 times - Configure mock side_effects properly
-
 RESULT FORMAT (just the code, no explanations):
 ```python
 # Complete test file with imports, fixtures, and test functions
