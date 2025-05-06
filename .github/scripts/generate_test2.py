@@ -613,44 +613,54 @@ FUNCTIONS REQUIRING TESTS:
 LIBRARY CONTEXT:
 - Used libraries: {', '.join(used_libraries)}
 
-TEST GENERATION PRIORITIES:
-1. CORRECTNESS: Write syntactically valid Python test code with proper imports and correct module references.
+TEST GENERATION PRINCIPLES:
 
-2. DATA HANDLING PRINCIPLES:
-   - Analyze model definitions carefully to understand their exact structure
-   - Consider how serialization libraries interact with field names and types
-   - Pay attention to naming conventions and consistency in the codebase
-   - Think about how to properly construct mock data that satisfies all model constraints
-   - Consider type conversion between API representations and internal models
+1. CODE STRUCTURE
+   - Write valid Python test code with proper imports
+   - Import the module under test correctly
+   - Create descriptive test names that indicate what's being tested
+   - Use unittest.mock instead of pytest-mock
 
-3. ASYNC PROGRAMMING PRINCIPLES:
-   - Coroutines must be resolved before their results can be used
-   - Consider the differences between synchronous and asynchronous context managers
-   - Think about the appropriate mock types for different asynchronous patterns
-   - Remember that different objects have different protocols for asynchronous operations
-   - Consider cleanup and resource management in both synchronous and asynchronous contexts
+2. MODEL ANALYSIS
+   - Study all model definitions thoroughly before writing tests
+   - Use exact field names as defined in the models (verify spelling and case)
+   - Respect the difference between lowercase and uppercase identifiers
+   - When working with enums, use the exact enum member names from source
+   - Include all required fields in mock data, even seemingly optional ones
+   - Match field types precisely (bool vs int vs str)
 
-4. API ENDPOINTS:
-   - Match URL path structure EXACTLY (including all path segments)
-   - Verify endpoint formats against source code implementation
-   - Use correct parameter formats and types
+3. DATA TYPE HANDLING
+   - Be precise about type matching in assertions
+   - Remember that boolean True/False is different from string 'true'/'false'
+   - For API parameters, convert Python booleans to the format expected by the API
+   - When parsing API responses, convert string booleans back to Python booleans
+   - Validate all constructed JSON with proper parsing before using in tests
 
-5. RESOURCE MANAGEMENT:
-   - Verify resources are properly closed/cleaned up
-   - Assert cleanup methods are called as expected
-   - Handle context managers correctly
+4. ASYNCHRONOUS TESTING
+   - Use AsyncMock, not MagicMock, for all async functions
+   - Always await coroutines before using their results
+   - Never try to directly iterate over or access attributes of unwrapped coroutines
+   - For functions returning collections: first await, then iterate
+   - Set up async mocks with properly awaitable return values
+   - Use proper async context managers with async with
 
-6. TYPE CONSISTENCY:
-   - Ensure assertions compare values of matching types
-   - Handle JSON boolean conversion correctly (true/false strings vs True/False)
-   - Deserialize API responses to appropriate Python types
+5. API INTERACTIONS
+   - Verify exact API endpoint paths from implementation
+   - Check each segment of URL paths (e.g., '/byname/' vs '/name/')
+   - Mock exact request parameters expected by the implementation
+   - Ensure mock JSON responses match the exact format returned by the API
+   - Test all error paths (DNS errors, connection failures, etc.)
 
-IMPORTS AND FRAMEWORK:
+6. RESOURCE MANAGEMENT
+   - Verify that resources are properly closed after use
+   - Test that close() methods are called exactly as expected
+   - Ensure both normal and error paths properly clean up resources
+   - For context managers, test both __enter__/__exit__ and __aenter__/__aexit__
+
+IMPORTS TO INCLUDE:
 ```python
-# Always include these for proper async testing
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock, call
-# DO NOT use pytest-mock fixtures
 ```
 
 RESULT FORMAT (code only, no explanations):
