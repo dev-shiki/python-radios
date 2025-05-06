@@ -628,8 +628,6 @@ SOURCE CODE:
 {source_code}
 ```
 
-{model_reference_code}
-
 FUNCTIONS REQUIRING TESTS:
 {function_details}
 
