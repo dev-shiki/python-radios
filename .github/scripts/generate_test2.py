@@ -518,48 +518,48 @@ TEST GENERATION REQUIREMENTS:
 ## STRICT GUIDELINES
 1. Write ONLY valid Python test code with no explanations or markdown
 2. Include proper imports for ALL required packages and modules:
-   - Import ALL necessary dependencies (e.g., aiodns, orjson)
-   - Missing imports like 'aiodns' cause test failures
+   - Import ALL necessary dependencies including exception classes (e.g., 'aiodns.error.DNSError')
+   - Import project-specific exceptions (e.g., 'radios.exceptions.RadioBrowserConnectionError')
 3. Import the module under test correctly
 4. Focus on COMPLETE test coverage for functions with low coverage
-5. For mock responses, ensure ALL model fields match EXACT requirements:
-   - Include ALL required fields in mock response dictionaries (e.g., 'supported_version', 'code', 'change_uuid', 'bitrate', 'stationcount')
-   - Match field types exactly (int, str, bool, etc.)
-   - Pay special attention to field CASE SENSITIVITY (e.g., 'stationcount' vs 'STATIONCOUNT')
-   - Handle attributes referenced in both camelCase and lowercase or uppercase forms
-   - Use Optional fields only when documented as optional
-   - Double-check models to include ALL fields that mashumaro expects
-6. When working with serialization libraries (e.g., mashumaro, orjson):
-   - Make sure mock data is the correct type (usually dict) before conversion
-   - Ensure mock JSON strings are properly formatted without invalid characters
-   - Validate all JSON strings before using them to avoid JSONDecodeError
-   - Check quotes, escape characters, control characters in all JSON strings
-   - Include proper error handling for serialization/deserialization issues
-7. For asynchronous code:
-   - Use AsyncMock instead of MagicMock for async functions
-   - Set appropriate return_value or side_effect for awaitable results
-   - Properly await coroutines or use async fixtures
-   - Use correct pytest.mark.asyncio decorators for async tests
-   - Ensure coroutines are properly awaited before assertions
-8. For API endpoint testing:
-   - Verify the EXACT endpoint paths in the source code (e.g., 'stations/search/name/' vs 'stations/search/byname/')
-   - Match URL structure exactly in mocks and assertions
-   - Double-check all parameters being passed to requests
-9. Create descriptive test function names that indicate what is being tested
-10. Include proper error handling and edge case testing:
-    - Test for network failures and error responses (like DNS errors)
-    - Mock appropriate exceptions (e.g., aiohttp.ClientError)
-    - Test for non-JSON responses when dealing with API calls
-11. Use appropriate fixtures and test setup for the testing framework
+5. For mock responses with model fields:
+   - Include ALL required fields in mock data, including: 'supported_version', 'code', 'bitrate', 'stationcount'
+   - Match exact field NAMES and CASE, especially 'stationcount' vs 'STATIONCOUNT'
+   - Match field TYPES exactly (int, str, bool, Optional[str], etc.)
+   - Always include model-required fields even if they seem optional
+   - Ensure complete model instances pass all mashumaro validation
+6. For proper mocking:
+   - Mock objects must be MagicMock/AsyncMock instances, not functions
+   - Use patch correctly to ensure assert_called_once works
+   - Always use AsyncMock for mocking async functions
+   - Set proper return_value or side_effect for mocks
+   - Ensure mock has all methods that will be called on it
+7. For API endpoints:
+   - Use EXACT endpoint paths from source code (e.g., 'stations/byuuid/' not 'stations/uuid/')
+   - Double-check all URL paths in both mock expectations and test code
+   - Verify parameters match expected format exactly
+8. For JSON and serialization:
+   - Validate JSON structure to avoid JSONDecodeError
+   - Ensure mock data has correct type before serialization
+   - Include proper error handling for serialization issues
+9. For asynchronous code:
+   - Use pytest.mark.asyncio for async tests
+   - Properly await all coroutines
+   - Handle async context managers correctly
+10. For exception testing:
+    - Mock correct exception types (e.g., aiodns.error.DNSError)
+    - Import all required exception classes
+    - Set up proper side_effects for error simulation
+11. Create descriptive test function names that indicate what is being tested
 12. When asserting values, ensure case sensitivity and exact type matching
-13. IMPORTANT: DO NOT use pytest-mock fixtures (mocker). Use unittest.mock directly with:
+13. IMPORTANT: DO NOT use pytest-mock fixtures (mocker). Use unittest.mock directly:
     ```python
     from unittest.mock import patch, AsyncMock, MagicMock
     ```
-14. Use class-level fixtures with self parameter instead of function-level fixtures when testing classes
-15. Be extra careful with library dependencies:
-    - Include all necessary imports for exception handling (like aiodns for DNS errors)
-    - Import exceptions from their correct locations (e.g., from aiohttp import ClientError)
+14. Use class-level fixtures with self parameter for class tests
+15. For all mock responses that create model instances:
+    - Always include a complete set of fields
+    - Never skip any required fields in models
 
 RESULT FORMAT (just the code, no explanations):
 ```python
