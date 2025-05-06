@@ -522,27 +522,37 @@ TEST GENERATION REQUIREMENTS:
 4. Focus on COMPLETE test coverage for functions with low coverage
 5. For mock responses, ensure ALL model fields match EXACT requirements:
    - Inspect model class definitions to identify ALL required fields
-   - Include ALL required fields in mock response dictionaries
+   - Include ALL required fields in mock response dictionaries (e.g., 'supported_version', 'code', 'change_uuid', 'bitrate', 'stationcount')
    - Match field types exactly (int, str, bool, etc.)
-   - Pay special attention to fields like 'stationcount', 'bitrate', and 'code'
    - Use Optional fields only when documented as optional
-6. When working with serialization libraries (e.g., mashumaro):
+   - Double-check models to include ALL fields that mashumaro expects
+6. When working with serialization libraries (e.g., mashumaro, orjson):
    - Make sure mock data is the correct type (usually dict) before conversion
+   - Ensure mock JSON strings are properly formatted without invalid characters
+   - Validate JSON structure before using it in tests to avoid JSONDecodeError
    - Include proper error handling for serialization/deserialization issues
 7. For asynchronous code:
+   - Use AsyncMock instead of MagicMock for async functions
+   - Set appropriate return_value or side_effect for awaitable results
    - Properly await coroutines or use async fixtures
    - Use correct pytest.mark.asyncio decorators for async tests
    - Ensure coroutines are properly awaited before assertions
-   - Use proper async mock techniques for mocking async functions
-8. Create descriptive test function names that indicate what is being tested
-9. Include proper error handling and edge case testing:
-   - Test for network failures and error responses
-   - Mock appropriate exceptions (e.g., aiohttp.ClientError)
-   - Test for non-JSON responses when dealing with API calls
-10. Use appropriate fixtures and test setup for the testing framework
-11. When asserting values, ensure case sensitivity and exact type matching
-12. IMPORTANT: DO NOT use pytest-mock fixtures (mocker). Use unittest.mock directly.
-13. Use class-level fixtures with self parameter instead of function-level fixtures when testing classes
+8. For API endpoint testing:
+   - Verify the EXACT endpoint paths in the source code (e.g., 'stations/search/name/' vs 'stations/search/byname/')
+   - Match URL structure exactly in mocks and assertions
+   - Double-check all parameters being passed to requests
+9. Create descriptive test function names that indicate what is being tested
+10. Include proper error handling and edge case testing:
+    - Test for network failures and error responses
+    - Mock appropriate exceptions (e.g., aiohttp.ClientError)
+    - Test for non-JSON responses when dealing with API calls
+11. Use appropriate fixtures and test setup for the testing framework
+12. When asserting values, ensure case sensitivity and exact type matching
+13. IMPORTANT: DO NOT use pytest-mock fixtures (mocker). Use unittest.mock directly with:
+    ```python
+    from unittest.mock import patch, AsyncMock, MagicMock
+    ```
+14. Use class-level fixtures with self parameter instead of function-level fixtures when testing classes
 
 RESULT FORMAT (just the code, no explanations):
 ```python
