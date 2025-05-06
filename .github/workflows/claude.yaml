@@ -109,10 +109,7 @@ jobs:
       - name: 🧪 Run generated tests with coverage
         if: ${{ fromJson(steps.find-modules.outputs.modules)[0] != null }}
         run: |
-          poetry run pytest tests/ -v --cov=src --cov-report=json:coverage-post-generation.json || {
-            echo "Tests failed, capturing error output for refinement"
-            poetry run pytest tests/ -v --cov=src --cov-report=json:coverage-post-generation.json 2>&1 | tee test-errors.log
-          }
+          poetry run pytest tests/ -v --cov=src --cov-report=json:coverage-post-generation.json 2>&1 | tee test-errors.log
       
       # Step 5: Analyze coverage improvement and test failures
       - name: 📊 Analyze coverage and test results
