@@ -613,26 +613,40 @@ FUNCTIONS REQUIRING TESTS:
 LIBRARY CONTEXT:
 - Used libraries: {', '.join(used_libraries)}
 
-Before writing tests, analyze:
-1. Coding patterns and conventions used
-2. Data model structures and field requirements
-3. How API interactions are structured
-4. Async patterns and resource management
+Before writing tests, carefully analyze:
+1. Model structures - look at ALL required fields and their types
+2. Constant and enum definitions - note exact names and string values
+3. API endpoint formats - check exact URL structures in implementation
+4. JSON serialization methods - note how data is formatted
 
-Create tests that:
-- Use unittest.mock directly instead of pytest-mock fixtures
-- Replace any use of 'mocker' fixture with direct patch/MagicMock/AsyncMock imports
-- Define all necessary fixtures explicitly in the test file
-- Follow good pytest practices
-- Properly handle async operations
-- Accurately mock external services
-- Verify all edge cases and error paths
+When writing tests:
+1. Use unittest.mock directly (not pytest-mock fixtures):
+   - from unittest.mock import patch, MagicMock, AsyncMock, call
 
-Important testing patterns:
-- Import directly: from unittest.mock import patch, MagicMock, AsyncMock
-- Use patch as decorator or context manager
-- Define your own fixtures instead of relying on external plugins when possible
-- For HTTP mocking, create appropriate fixtures with proper teardown
+2. For model instances in tests:
+   - Include ALL required fields (code, click_timestamp, etc.)
+   - Use proper datetime types for timestamp fields
+   - Match field types exactly as defined
+
+3. For constants and enums:
+   - Use the exact case and format from definitions
+   - Check for underscores in constant names
+   - For string values, use the values defined in the enum
+
+4. For API endpoints:
+   - Match exact paths from implementation (byname vs name)
+   - Check URL structure in both mocks and assertions
+   - Use consistent formats between expectations and actual calls
+
+5. For JSON data:
+   - Validate mock JSON structure before using
+   - Properly escape special characters
+   - Ensure format matches expected serialization
+
+6. For async code:
+   - Use AsyncMock for async functions
+   - Always await coroutines before using results
+   - Test proper resource cleanup in async context
 
 Include appropriate fixtures, mocks, and assertions based on your analysis.
 
