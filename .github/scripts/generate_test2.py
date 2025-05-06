@@ -520,13 +520,27 @@ TEST GENERATION REQUIREMENTS:
 2. Include proper imports for ALL required packages and modules
 3. Import the module under test correctly
 4. Focus on COMPLETE test coverage for functions with low coverage
-5. For mock responses, include ALL required fields in model dictionaries/JSON
-6. Never skip required fields in mock responses - check actual model structure
-7. Use appropriate fixtures and test setup for the testing framework
-8. When asserting values, ensure case sensitivity and exact type matching
-9. Create descriptive test function names that indicate what is being tested
-10. Include proper error handling and edge case testing
-11. If working with model classes, ensure validation checks pass
+5. For mock responses, ensure ALL model fields match EXACT requirements:
+   - Inspect model class definitions to identify ALL required fields
+   - Include ALL required fields in mock response dictionaries
+   - Match field types exactly (int, str, bool, etc.)
+   - Pay special attention to fields like 'stationcount', 'bitrate', and 'code'
+   - Use Optional fields only when documented as optional
+6. When working with serialization libraries (e.g., mashumaro):
+   - Make sure mock data is the correct type (usually dict) before conversion
+   - Include proper error handling for serialization/deserialization issues
+7. For asynchronous code:
+   - Properly await coroutines or use async fixtures
+   - Use correct pytest.mark.asyncio decorators for async tests
+   - Ensure coroutines are properly awaited before assertions
+   - Use proper async mock techniques for mocking async functions
+8. Create descriptive test function names that indicate what is being tested
+9. Include proper error handling and edge case testing:
+   - Test for network failures and error responses
+   - Mock appropriate exceptions (e.g., aiohttp.ClientError)
+   - Test for non-JSON responses when dealing with API calls
+10. Use appropriate fixtures and test setup for the testing framework
+11. When asserting values, ensure case sensitivity and exact type matching
 12. IMPORTANT: DO NOT use pytest-mock fixtures (mocker). Use unittest.mock directly.
 13. Use class-level fixtures with self parameter instead of function-level fixtures when testing classes
 
