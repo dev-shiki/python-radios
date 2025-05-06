@@ -726,7 +726,12 @@ Follow these best practices when writing the tests:
    * Using correct constants/enums as defined in the source
    * Properly awaiting async functions and testing cleanup
    * Validating all mock data before use in tests
-   * Matching API endpoint formats exactly
+   * Matching API endpoint formats exactly]
+   * When working with enums, always use the exact enum member names 
+   * Never directly use the string values of enums
+   * Pay special attention to underscores and capitalization in enum names
+   * Maintain exact case sensitivity in field names
+   * Match field types precisely (bool, int, str, Optional[str], etc.)
 
 4. For model data:
    * Include all required fields with proper types
@@ -736,7 +741,6 @@ Follow these best practices when writing the tests:
 Provide complete, working test code with no explanations or comments outside of code.
 ```python
 """
-        print(prompt)
         return prompt
     
     def save_test_file(self, file_path: Path, test_code: str) -> Path:
