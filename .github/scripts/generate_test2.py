@@ -636,6 +636,9 @@ TEST GENERATION REQUIREMENTS:
 7. For mocking external services:
    - Configure mocks to handle the exact number of expected calls
    - Set up appropriate return values and side effects
+   - Ensure proper resource cleanup by verifying necessary method calls on closable resources
+   - For context managers or resources that need cleanup, assert all cleanup methods are called
+   - Pay attention to connection objects that should be properly closed after use
 8. For API endpoints:
    - Use EXACT endpoint paths from the source code
    - Check each path segment carefully (e.g., '/click/' might be required in a path)
