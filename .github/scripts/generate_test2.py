@@ -297,58 +297,150 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
         return uncovered_functions
 
     def _extract_model_structure(self, source_code: str) -> Dict[str, Dict[str, Dict]]:
-        """Extract dataclass/model structures from the code."""
+        """Extract dataclass/model structures from the code with enhanced mashumaro detection."""
         models = {}
         
         try:
             tree = ast.parse(source_code)
+            
+            # First pass: collect all class definitions
+            class_defs = {}
             for node in ast.walk(tree):
                 if isinstance(node, ast.ClassDef):
-                    # Check if it's a dataclass or similar model
-                    is_dataclass = any(
-                        (isinstance(d, ast.Name) and d.id in ["dataclass", "dataclasses", "pydantic"]) or
-                        (isinstance(d, ast.Call) and 
-                        isinstance(d.func, (ast.Name, ast.Attribute)) and 
-                        any(name in ast.unparse(d.func) for name in ["dataclass", "BaseModel"]))
-                        for d in node.decorator_list
-                    )
+                    class_defs[node.name] = node
+            
+            # Second pass: analyze classes for model characteristics
+            for class_name, node in class_defs.items():
+                # Check various indicators that this is a model class
+                
+                # 1. Check decorators for dataclass or similar
+                is_model = any(
+                    (isinstance(d, ast.Name) and d.id in ["dataclass", "dataclasses", "pydantic"]) or
+                    (isinstance(d, ast.Call) and 
+                    isinstance(d.func, (ast.Name, ast.Attribute)) and 
+                    any(name in ast.unparse(d.func) for name in ["dataclass", "BaseModel"]))
+                    for d in node.decorator_list
+                )
+                
+                # 2. Check for mashumaro inheritance patterns
+                if not is_model:
+                    for base in node.bases:
+                        base_str = ast.unparse(base)
+                        if any(pattern in base_str for pattern in [
+                            "DataClassJSONMixin", 
+                            "mashumaro", 
+                            "EnhancedJSONEncoder", 
+                            "SerializationMixin"
+                        ]):
+                            is_model = True
+                            break
+                
+                # 3. Check for characteristic class variables or type hints
+                if not is_model:
+                    for item in node.body:
+                        # Look for mashumaro configuration class variables
+                        if isinstance(item, ast.Assign) and isinstance(item.targets[0], ast.Name):
+                            var_name = item.targets[0].id
+                            if var_name in ["__slots__", "_serialization_config", "CONFIG", "mashumaro_config"]:
+                                is_model = True
+                                break
+                
+                if is_model:
+                    fields = {}
+                    inheritance_fields = {}
                     
-                    if is_dataclass:
-                        fields = {}
-                        for item in node.body:
-                            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
-                                field_name = item.target.id
-                                field_type = ast.unparse(item.annotation)
-                                
-                                default_value = None
-                                required = True
-                                
-                                if item.value:
-                                    if isinstance(item.value, ast.Call) and isinstance(item.value.func, ast.Name):
-                                        if item.value.func.id == 'field':
-                                            # Parse field options
-                                            for keyword in item.value.keywords:
-                                                if keyword.arg == 'default':
-                                                    default_value = ast.unparse(keyword.value)
-                                                    required = False
-                                                elif keyword.arg == 'default_factory':
-                                                    default_value = f"factory: {ast.unparse(keyword.value)}"
-                                                    required = False
-                                    else:
-                                        default_value = ast.unparse(item.value)
-                                        required = False
-                                
-                                fields[field_name] = {
-                                    "type": field_type,
-                                    "required": required,
-                                    "default": default_value
-                                }
-                        
-                        models[node.name] = fields
+                    # Check parent classes for fields to inherit
+                    for base in node.bases:
+                        base_str = ast.unparse(base)
+                        # Get the base class name without module prefixes
+                        base_name = base_str.split('.')[-1]
+                        if base_name in class_defs:
+                            # Recursively extract fields from parent class
+                            parent_fields = self._extract_class_fields(class_defs[base_name])
+                            inheritance_fields.update(parent_fields)
+                    
+                    # Extract fields from this class
+                    class_fields = self._extract_class_fields(node)
+                    
+                    # Combine fields from inheritance and this class
+                    # Fields defined in this class override inherited fields
+                    fields.update(inheritance_fields)
+                    fields.update(class_fields)
+                    
+                    models[class_name] = fields
         except Exception as e:
             print(f"Error extracting models: {e}")
         
         return models
+
+    def _extract_class_fields(self, node: ast.ClassDef) -> Dict[str, Dict]:
+        """Extract fields from a class definition."""
+        fields = {}
+        
+        for item in node.body:
+            # Regular field annotations (Type annotations)
+            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                field_name = item.target.id
+                field_type = ast.unparse(item.annotation)
+                
+                default_value = None
+                required = True
+                
+                if item.value:
+                    if isinstance(item.value, ast.Call) and isinstance(item.value.func, ast.Name):
+                        if item.value.func.id == 'field':
+                            # Parse field options
+                            for keyword in item.value.keywords:
+                                if keyword.arg == 'default':
+                                    default_value = ast.unparse(keyword.value)
+                                    required = False
+                                elif keyword.arg == 'default_factory':
+                                    default_value = f"factory: {ast.unparse(keyword.value)}"
+                                    required = False
+                    else:
+                        default_value = ast.unparse(item.value)
+                        required = False
+                
+                fields[field_name] = {
+                    "type": field_type,
+                    "required": required,
+                    "default": default_value
+                }
+            
+            # Handle __slots__ declarations which might list field names
+            elif isinstance(item, ast.Assign):
+                for target in item.targets:
+                    if isinstance(target, ast.Name) and target.id == "__slots__":
+                        if isinstance(item.value, ast.Tuple):
+                            for elt in item.value.elts:
+                                if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                                    field_name = elt.value
+                                    if field_name not in fields:
+                                        fields[field_name] = {
+                                            "type": "Any",  # Type unknown
+                                            "required": True,
+                                            "default": None
+                                        }
+            
+            # Look for field() calls which might define metadata
+            elif isinstance(item, ast.Expr) and isinstance(item.value, ast.Call):
+                call = item.value
+                if isinstance(call.func, ast.Name) and call.func.id == "field":
+                    # Extract field name and metadata
+                    field_name = None
+                    for kw in call.keywords:
+                        if kw.arg == "name":
+                            if isinstance(kw.value, ast.Constant):
+                                field_name = kw.value.value
+                    
+                    if field_name and field_name not in fields:
+                        fields[field_name] = {
+                            "type": "Any",  # Type unknown
+                            "required": True,
+                            "default": None
+                        }
+        
+        return fields
 
     def _extract_detailed_function_info(self, uncovered_functions: Dict[str, Dict]) -> str:
         """Create detailed text description of functions needing tests."""
