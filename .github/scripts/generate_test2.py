@@ -464,16 +464,17 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
 
     def _contains_model_definitions(self, file_path: Path) -> bool:
         """
-        Check if a file contains model class definitions (dataclasses, mashumaro, pydantic, etc.).
+        Check if a file contains model class definitions or enums.
         """
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
-            # Quick check for common model indicators
+            # Quick check for common model or enum indicators
             indicators = [
                 'class', '@dataclass', 'mashumaro', 'BaseModel', 
-                'DataClassJSONMixin', 'SerializationMixin', 'field'
+                'DataClassJSONMixin', 'SerializationMixin', 'field',
+                'Enum', 'enum', 'IntEnum', 'StrEnum', '(str, Enum)'
             ]
             
             if not any(indicator in content for indicator in indicators):
@@ -489,17 +490,28 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
                         if any(model_dec in decorator_str for model_dec in ['dataclass', 'BaseModel']):
                             return True
                     
-                    # Check base classes
+                    # Check base classes for model and enum patterns
                     for base in node.bases:
                         base_str = ast.unparse(base)
                         if any(model_base in base_str for model_base in 
-                              ['DataClassJSONMixin', 'BaseModel', 'SerializationMixin']):
+                            ['DataClassJSONMixin', 'BaseModel', 'SerializationMixin']):
+                            return True
+                        # Add explicit Enum detection
+                        if any(enum_base in base_str for enum_base in 
+                            ['Enum', 'IntEnum', 'StrEnum', 'str, Enum']):
                             return True
                     
                     # Check for model-like structure (many typed attributes)
                     typed_attrs = sum(1 for item in node.body 
                                     if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name))
                     if typed_attrs >= 3:  # If class has several typed attributes, it's likely a model
+                        return True
+                    
+                    # Check for enum-like structure (many class variables with values)
+                    enum_attrs = sum(1 for item in node.body 
+                                if isinstance(item, ast.Assign) and 
+                                any(isinstance(target, ast.Name) for target in item.targets))
+                    if enum_attrs >= 3:  # If class has several constant assignments, it might be an enum
                         return True
             
             return False
@@ -509,13 +521,13 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
 
     def extract_model_definitions(self, file_path: Path) -> str:
         """
-        Extract model class definitions from a file.
+        Extract model class and enum definitions from a file.
         
         Args:
             file_path: Path to the file
             
         Returns:
-            String containing model class definitions
+            String containing model class and enum definitions
         """
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -530,46 +542,123 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
                 if isinstance(node, (ast.Import, ast.ImportFrom)):
                     imports.append(ast.unparse(node))
             
-            # Extract class definitions that appear to be models
+            # Extract top-level variables that might be needed for enums
+            top_level_vars = []
+            for node in ast.iter_child_nodes(tree):
+                if isinstance(node, ast.Assign):
+                    top_level_vars.append(ast.unparse(node))
+            
+            # Extract class definitions that appear to be models or enums
             for node in ast.iter_child_nodes(tree):
                 if isinstance(node, ast.ClassDef):
-                    # Check if it's a model class
-                    is_model = False
+                    # Check if it's a model class or enum
+                    is_model_or_enum = False
                     
                     # Check decorators
                     for decorator in node.decorator_list:
                         decorator_str = ast.unparse(decorator)
-                        if any(model_dec in decorator_str for model_dec in ['enum', 'dataclass', 'BaseModel']):
-                            is_model = True
+                        if any(dec in decorator_str for dec in ['enum', 'dataclass', 'BaseModel']):
+                            is_model_or_enum = True
                             break
                     
                     # Check base classes
-                    if not is_model:
+                    if not is_model_or_enum:
                         for base in node.bases:
                             base_str = ast.unparse(base)
+                            # Check for model base classes
                             if any(model_base in base_str for model_base in 
-                                  ['Enum', 'DataClassJSONMixin', 'BaseModel', 'SerializationMixin']):
-                                is_model = True
+                                ['DataClassJSONMixin', 'BaseModel', 'SerializationMixin']):
+                                is_model_or_enum = True
+                                break
+                            # Check for enum base classes
+                            if any(enum_base in base_str for enum_base in 
+                                ['Enum', 'IntEnum', 'StrEnum']) or 'str, Enum' in base_str:
+                                is_model_or_enum = True
                                 break
                     
-                    # Check for model-like structure (many typed attributes)
-                    if not is_model:
+                    # Check for model-like structure
+                    if not is_model_or_enum:
                         typed_attrs = sum(1 for item in node.body 
                                         if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name))
                         if typed_attrs >= 3:  # If class has several typed attributes, it's likely a model
-                            is_model = True
+                            is_model_or_enum = True
                     
-                    if is_model:
+                    # Check for enum-like structure
+                    if not is_model_or_enum:
+                        enum_attrs = sum(1 for item in node.body 
+                                    if isinstance(item, ast.Assign) and 
+                                    any(isinstance(target, ast.Name) for target in item.targets))
+                        if enum_attrs >= 3:  # If class has several constant assignments, it might be an enum
+                            is_model_or_enum = True
+                    
+                    if is_model_or_enum:
                         model_definitions.append(ast.unparse(node))
             
-            # Combine imports and model definitions
+            # Combine imports, top-level vars, and model definitions
             unique_imports = list(dict.fromkeys(imports))  # Remove duplicates while preserving order
-            model_code = "\n".join(unique_imports + [""] + model_definitions)
+            result_parts = unique_imports + [""] + top_level_vars + [""] + model_definitions
+            model_code = "\n".join(filter(None, result_parts))  # filter removes empty strings
             
             return model_code
         except Exception as e:
-            print(f"Error extracting model definitions from {file_path}: {e}")
+            print(f"Error extracting definitions from {file_path}: {e}")
             return ""
+
+    def find_enum_references(self, source_file: Path) -> List[Path]:
+        """
+        Find enum definition files referenced by the source file.
+        
+        Args:
+            source_file: Path to the source file being tested
+            
+        Returns:
+            List of paths to enum definition files
+        """
+        enum_files = set()
+        source_dir = source_file.parent
+        project_root = self._find_project_root(source_file)
+        
+        # First, check if there's a const.py in the same directory
+        const_file = source_dir / 'const.py'
+        if const_file.exists():
+            enum_files.add(const_file)
+        
+        # Read the source file to extract imports
+        try:
+            with open(source_file, 'r', encoding='utf-8') as f:
+                source_code = f.read()
+        except Exception as e:
+            print(f"Error reading {source_file}: {e}")
+            return []
+        
+        # Extract imports from the source code
+        imports = self._extract_imports(source_code)
+        
+        # Check for potential enum imports
+        for module_path in imports:
+            # Check if this import might be an enum module
+            if 'const' in module_path.lower() or 'enum' in module_path.lower():
+                # Convert module path to file path
+                parts = module_path.split('.')
+                
+                # Try absolute path from project root
+                file_path = project_root.joinpath(*parts).with_suffix('.py')
+                if file_path.exists():
+                    enum_files.add(file_path)
+                
+                # Try relative path from source directory
+                file_path = source_dir.joinpath(*parts).with_suffix('.py')
+                if file_path.exists():
+                    enum_files.add(file_path)
+        
+        # Check common enum file names
+        common_enum_files = ['enums.py', 'constants.py', 'consts.py', 'types.py']
+        for enum_file in common_enum_files:
+            file_path = source_dir / enum_file
+            if file_path.exists():
+                enum_files.add(file_path)
+        
+        return list(enum_files)
 
     def _create_prompt(self, source_file: Path, source_code: str) -> str:
         """Create a prompt for generating tests with model reference files."""
@@ -579,11 +668,17 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
         
         # Find and extract model reference files
         model_reference_files = self.find_model_references(source_file)
+        
+        # Add enum references
+        enum_reference_files = self.find_enum_references(source_file)
+        # Combine model and enum files, removing duplicates
+        all_reference_files = list(set(model_reference_files + enum_reference_files))
+        
         model_reference_code = ""
         
-        if model_reference_files:
-            model_reference_code = "\nMODEL REFERENCE FILES:\n"
-            for file_path in model_reference_files:
+        if all_reference_files:
+            model_reference_code = "\nMODEL AND ENUM REFERENCE FILES:\n"
+            for file_path in all_reference_files:
                 model_definitions = self.extract_model_definitions(file_path)
                 if model_definitions:
                     # Use str(file_path) instead of trying to make it relative
