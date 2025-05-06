@@ -19,10 +19,12 @@ class UniversalTestGenerator:
     
     def __init__(self, 
                  api_key: str,
-                 coverage_threshold: float = 80.0):
+                 coverage_threshold: float = 80.0,
+                 model: str = "google/gemini-2.0-flash-001"):
         """Initialize with minimal configuration."""
         self.api_key = api_key
         self.coverage_threshold = coverage_threshold
+        self.model = model
         self.openai_client = self._setup_openai()
         self.module_name = ""
         self.test_file_path = None
@@ -106,7 +108,7 @@ class UniversalTestGenerator:
         # Generate tests
         try:
             response = self.openai_client.chat.completions.create(
-                model="google/gemini-2.0-flash-001",  # Or your preferred model
+                model=self.model,
                 messages=[
                     {"role": "system", "content": self._get_system_prompt()},
                     {"role": "user", "content": prompt}
@@ -296,151 +298,32 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
         
         return uncovered_functions
 
-    def _extract_model_structure(self, source_code: str) -> Dict[str, Dict[str, Dict]]:
-        """Extract dataclass/model structures from the code with enhanced mashumaro detection."""
-        models = {}
+    def _identify_used_libraries(self, source_code: str) -> List[str]:
+        """Identify external libraries used in the module."""
+        libraries = set()
+        
+        # Standard library modules that shouldn't be considered as external
+        stdlib_modules = {'os', 'sys', 'json', 're', 'pathlib', 'datetime', 'collections', 'typing', 
+                        'functools', 'itertools', 'asyncio', 'logging', 'unittest', 'dataclasses'}
         
         try:
             tree = ast.parse(source_code)
-            
-            # First pass: collect all class definitions
-            class_defs = {}
             for node in ast.walk(tree):
-                if isinstance(node, ast.ClassDef):
-                    class_defs[node.name] = node
-            
-            # Second pass: analyze classes for model characteristics
-            for class_name, node in class_defs.items():
-                # Check various indicators that this is a model class
+                if isinstance(node, ast.Import):
+                    for name in node.names:
+                        base_module = name.name.split('.')[0]
+                        if base_module not in stdlib_modules:
+                            libraries.add(base_module)
                 
-                # 1. Check decorators for dataclass or similar
-                is_model = any(
-                    (isinstance(d, ast.Name) and d.id in ["dataclass", "dataclasses", "pydantic"]) or
-                    (isinstance(d, ast.Call) and 
-                    isinstance(d.func, (ast.Name, ast.Attribute)) and 
-                    any(name in ast.unparse(d.func) for name in ["dataclass", "BaseModel"]))
-                    for d in node.decorator_list
-                )
-                
-                # 2. Check for mashumaro inheritance patterns
-                if not is_model:
-                    for base in node.bases:
-                        base_str = ast.unparse(base)
-                        if any(pattern in base_str for pattern in [
-                            "DataClassJSONMixin", 
-                            "mashumaro", 
-                            "EnhancedJSONEncoder", 
-                            "SerializationMixin"
-                        ]):
-                            is_model = True
-                            break
-                
-                # 3. Check for characteristic class variables or type hints
-                if not is_model:
-                    for item in node.body:
-                        # Look for mashumaro configuration class variables
-                        if isinstance(item, ast.Assign) and isinstance(item.targets[0], ast.Name):
-                            var_name = item.targets[0].id
-                            if var_name in ["__slots__", "_serialization_config", "CONFIG", "mashumaro_config"]:
-                                is_model = True
-                                break
-                
-                if is_model:
-                    fields = {}
-                    inheritance_fields = {}
-                    
-                    # Check parent classes for fields to inherit
-                    for base in node.bases:
-                        base_str = ast.unparse(base)
-                        # Get the base class name without module prefixes
-                        base_name = base_str.split('.')[-1]
-                        if base_name in class_defs:
-                            # Recursively extract fields from parent class
-                            parent_fields = self._extract_class_fields(class_defs[base_name])
-                            inheritance_fields.update(parent_fields)
-                    
-                    # Extract fields from this class
-                    class_fields = self._extract_class_fields(node)
-                    
-                    # Combine fields from inheritance and this class
-                    # Fields defined in this class override inherited fields
-                    fields.update(inheritance_fields)
-                    fields.update(class_fields)
-                    
-                    models[class_name] = fields
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module:
+                        base_module = node.module.split('.')[0]
+                        if base_module not in stdlib_modules:
+                            libraries.add(base_module)
         except Exception as e:
-            print(f"Error extracting models: {e}")
+            print(f"Error identifying libraries: {e}")
         
-        return models
-
-    def _extract_class_fields(self, node: ast.ClassDef) -> Dict[str, Dict]:
-        """Extract fields from a class definition."""
-        fields = {}
-        
-        for item in node.body:
-            # Regular field annotations (Type annotations)
-            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
-                field_name = item.target.id
-                field_type = ast.unparse(item.annotation)
-                
-                default_value = None
-                required = True
-                
-                if item.value:
-                    if isinstance(item.value, ast.Call) and isinstance(item.value.func, ast.Name):
-                        if item.value.func.id == 'field':
-                            # Parse field options
-                            for keyword in item.value.keywords:
-                                if keyword.arg == 'default':
-                                    default_value = ast.unparse(keyword.value)
-                                    required = False
-                                elif keyword.arg == 'default_factory':
-                                    default_value = f"factory: {ast.unparse(keyword.value)}"
-                                    required = False
-                    else:
-                        default_value = ast.unparse(item.value)
-                        required = False
-                
-                fields[field_name] = {
-                    "type": field_type,
-                    "required": required,
-                    "default": default_value
-                }
-            
-            # Handle __slots__ declarations which might list field names
-            elif isinstance(item, ast.Assign):
-                for target in item.targets:
-                    if isinstance(target, ast.Name) and target.id == "__slots__":
-                        if isinstance(item.value, ast.Tuple):
-                            for elt in item.value.elts:
-                                if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                                    field_name = elt.value
-                                    if field_name not in fields:
-                                        fields[field_name] = {
-                                            "type": "Any",  # Type unknown
-                                            "required": True,
-                                            "default": None
-                                        }
-            
-            # Look for field() calls which might define metadata
-            elif isinstance(item, ast.Expr) and isinstance(item.value, ast.Call):
-                call = item.value
-                if isinstance(call.func, ast.Name) and call.func.id == "field":
-                    # Extract field name and metadata
-                    field_name = None
-                    for kw in call.keywords:
-                        if kw.arg == "name":
-                            if isinstance(kw.value, ast.Constant):
-                                field_name = kw.value.value
-                    
-                    if field_name and field_name not in fields:
-                        fields[field_name] = {
-                            "type": "Any",  # Type unknown
-                            "required": True,
-                            "default": None
-                        }
-        
-        return fields
+        return sorted(list(libraries))
 
     def _extract_detailed_function_info(self, uncovered_functions: Dict[str, Dict]) -> str:
         """Create detailed text description of functions needing tests."""
@@ -478,114 +361,235 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
         
         return "\n".join(details)
 
-    def _generate_mock_value_for_type(self, field_type: str) -> str:
-        """Generate appropriate mock values based on type hints."""
-        field_type = field_type.lower()
+    def find_model_references(self, source_file: Path) -> List[Path]:
+        """
+        Find model definition files referenced by the source file.
         
-        # Handle basic types
-        type_mapping = {
-            'str': '"mock_string"',
-            'int': '42',
-            'float': '42.0',
-            'bool': 'true',
-            'dict': '{"key": "value"}',
-            'list': '["item1", "item2"]',
-            'set': '["item1", "item2"]',
-            'tuple': '["item1", "item2"]',
-            'datetime': '"2024-01-01T00:00:00"',
-            'uuid': '"123e4567-e89b-12d3-a456-426614174000"',
-            'path': '"/path/to/file"',
-            'pathlib.path': '"/path/to/file"',
-            'httpurl': '"https://example.com"',
-            'emailstr': '"test@example.com"'
-        }
-        
-        # Handle composite types
-        if 'optional' in field_type or '|' in field_type:
-            # Extract inner type from Optional[Type] or Type1 | Type2
-            inner_type = field_type.replace('optional[', '').replace(']', '')
-            if '|' in inner_type:
-                inner_type = inner_type.split('|')[0].strip()
-            elif ',' in inner_type:
-                inner_type = inner_type.split(',')[0].strip()
-            inner_type = inner_type.replace('none', '').strip()
+        Args:
+            source_file: Path to the source file being tested
             
-            return self._generate_mock_value_for_type(inner_type)
+        Returns:
+            List of paths to model definition files
+        """
+        model_files = set()
+        source_dir = source_file.parent
+        project_root = self._find_project_root(source_file)
         
-        elif 'list[' in field_type:
-            # Extract inner type from List[Type]
-            inner_type = re.search(r'list\[(.*?)\]', field_type)
-            if inner_type:
-                item_value = self._generate_mock_value_for_type(inner_type.group(1))
-                return f'[{item_value}]'
-            return '["item1", "item2"]'
+        # Read the source file to extract imports
+        try:
+            with open(source_file, 'r', encoding='utf-8') as f:
+                source_code = f.read()
+        except Exception as e:
+            print(f"Error reading {source_file}: {e}")
+            return []
         
-        elif 'dict[' in field_type:
-            # Extract key/value types from Dict[Key, Value]
-            types = re.search(r'dict\[(.*?)\]', field_type)
-            if types:
-                key_type, value_type = types.group(1).split(',')
-                key_value = self._generate_mock_value_for_type(key_type.strip())
-                value_value = self._generate_mock_value_for_type(value_type.strip())
-                return f'{{{key_value}: {value_value}}}'
-            return '{"key": "value"}'
+        # Extract imports from the source code
+        imports = self._extract_imports(source_code)
         
-        # Return specific type value or default
-        for type_key, mock_value in type_mapping.items():
-            if type_key in field_type:
-                return mock_value
+        # Check common model file locations
+        potential_paths = []
         
-        return '"mock_value"'
+        # 1. Directly imported modules
+        for module_path in imports:
+            # Convert module path to file path
+            parts = module_path.split('.')
+            
+            # Try absolute path from project root
+            file_path = project_root.joinpath(*parts).with_suffix('.py')
+            if file_path.exists():
+                potential_paths.append(file_path)
+            
+            # Try relative path from source directory
+            file_path = source_dir.joinpath(*parts).with_suffix('.py')
+            if file_path.exists():
+                potential_paths.append(file_path)
+        
+        # 2. Common model files in the same package
+        common_model_files = ['models.py', 'schemas.py', 'entities.py', 'types.py', 'dataclasses.py']
+        for model_file in common_model_files:
+            file_path = source_dir / model_file
+            if file_path.exists():
+                potential_paths.append(file_path)
+        
+        # 3. Check if there's a models directory
+        model_dirs = [source_dir / 'models', project_root / 'models', 
+                      source_dir / 'schemas', project_root / 'schemas']
+        
+        for model_dir in model_dirs:
+            if model_dir.exists() and model_dir.is_dir():
+                for file_path in model_dir.glob('**/*.py'):
+                    potential_paths.append(file_path)
+        
+        # Analyze each potential file to check if it contains model definitions
+        for file_path in potential_paths:
+            if self._contains_model_definitions(file_path):
+                model_files.add(file_path)
+        
+        return list(model_files)
 
-    def _identify_used_libraries(self, source_code: str) -> List[str]:
-        """Identify external libraries used in the module."""
-        libraries = set()
+    def _find_project_root(self, file_path: Path) -> Path:
+        """Find the project root directory."""
+        current_path = file_path.parent.absolute()
         
-        # Standard library modules that shouldn't be considered as external
-        stdlib_modules = {'os', 'sys', 'json', 're', 'pathlib', 'datetime', 'collections', 'typing', 
-                        'functools', 'itertools', 'asyncio', 'logging', 'unittest', 'dataclasses'}
+        # Look for common project root indicators
+        indicators = ['pyproject.toml', 'setup.py', '.git', 'requirements.txt']
+        
+        while current_path != current_path.parent:
+            for indicator in indicators:
+                if (current_path / indicator).exists():
+                    return current_path
+            current_path = current_path.parent
+        
+        # If no root found, return the current directory
+        return Path.cwd()
+
+    def _extract_imports(self, source_code: str) -> List[str]:
+        """Extract imported modules from source code."""
+        imports = []
         
         try:
             tree = ast.parse(source_code)
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
                     for name in node.names:
-                        base_module = name.name.split('.')[0]
-                        if base_module not in stdlib_modules:
-                            libraries.add(base_module)
+                        imports.append(name.name)
                 
                 elif isinstance(node, ast.ImportFrom):
                     if node.module:
-                        base_module = node.module.split('.')[0]
-                        if base_module not in stdlib_modules:
-                            libraries.add(base_module)
+                        imports.append(node.module)
         except Exception as e:
-            print(f"Error identifying libraries: {e}")
+            print(f"Error extracting imports: {e}")
         
-        return sorted(list(libraries))
+        return imports
+
+    def _contains_model_definitions(self, file_path: Path) -> bool:
+        """
+        Check if a file contains model class definitions (dataclasses, mashumaro, pydantic, etc.).
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Quick check for common model indicators
+            indicators = [
+                'class', '@dataclass', 'mashumaro', 'BaseModel', 
+                'DataClassJSONMixin', 'SerializationMixin', 'field'
+            ]
+            
+            if not any(indicator in content for indicator in indicators):
+                return False
+            
+            # More detailed AST analysis
+            tree = ast.parse(content)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef):
+                    # Check decorators
+                    for decorator in node.decorator_list:
+                        decorator_str = ast.unparse(decorator)
+                        if any(model_dec in decorator_str for model_dec in ['dataclass', 'BaseModel']):
+                            return True
+                    
+                    # Check base classes
+                    for base in node.bases:
+                        base_str = ast.unparse(base)
+                        if any(model_base in base_str for model_base in 
+                              ['DataClassJSONMixin', 'BaseModel', 'SerializationMixin']):
+                            return True
+                    
+                    # Check for model-like structure (many typed attributes)
+                    typed_attrs = sum(1 for item in node.body 
+                                    if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name))
+                    if typed_attrs >= 3:  # If class has several typed attributes, it's likely a model
+                        return True
+            
+            return False
+        except Exception as e:
+            print(f"Error analyzing {file_path}: {e}")
+            return False
+
+    def extract_model_definitions(self, file_path: Path) -> str:
+        """
+        Extract model class definitions from a file.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            String containing model class definitions
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            tree = ast.parse(content)
+            model_definitions = []
+            
+            # Get imports that might be needed for the models
+            imports = []
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    imports.append(ast.unparse(node))
+            
+            # Extract class definitions that appear to be models
+            for node in ast.iter_child_nodes(tree):
+                if isinstance(node, ast.ClassDef):
+                    # Check if it's a model class
+                    is_model = False
+                    
+                    # Check decorators
+                    for decorator in node.decorator_list:
+                        decorator_str = ast.unparse(decorator)
+                        if any(model_dec in decorator_str for model_dec in ['dataclass', 'BaseModel']):
+                            is_model = True
+                            break
+                    
+                    # Check base classes
+                    if not is_model:
+                        for base in node.bases:
+                            base_str = ast.unparse(base)
+                            if any(model_base in base_str for model_base in 
+                                  ['DataClassJSONMixin', 'BaseModel', 'SerializationMixin']):
+                                is_model = True
+                                break
+                    
+                    # Check for model-like structure (many typed attributes)
+                    if not is_model:
+                        typed_attrs = sum(1 for item in node.body 
+                                        if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name))
+                        if typed_attrs >= 3:  # If class has several typed attributes, it's likely a model
+                            is_model = True
+                    
+                    if is_model:
+                        model_definitions.append(ast.unparse(node))
+            
+            # Combine imports and model definitions
+            unique_imports = list(dict.fromkeys(imports))  # Remove duplicates while preserving order
+            model_code = "\n".join(unique_imports + [""] + model_definitions)
+            
+            return model_code
+        except Exception as e:
+            print(f"Error extracting model definitions from {file_path}: {e}")
+            return ""
 
     def _create_prompt(self, source_file: Path, source_code: str) -> str:
-        """Create a prompt for generating tests."""
+        """Create a prompt for generating tests with model reference files."""
         # Extract information
         uncovered_functions = self._extract_uncovered_functions(source_code)
-        models = self._extract_model_structure(source_code)
         used_libraries = self._identify_used_libraries(source_code)
+        
+        # Find and extract model reference files
+        model_reference_files = self.find_model_references(source_file)
+        model_reference_code = ""
+        
+        if model_reference_files:
+            model_reference_code = "\nMODEL REFERENCE FILES:\n"
+            for file_path in model_reference_files:
+                model_definitions = self.extract_model_definitions(file_path)
+                if model_definitions:
+                    model_reference_code += f"\n# From {file_path.relative_to(Path.cwd())}\n```python\n{model_definitions}\n```\n"
         
         # Extract function details
         function_details = self._extract_detailed_function_info(uncovered_functions)
-        
-        # Generate model examples
-        model_examples = ""
-        if models:
-            model_examples = "\nMODEL MOCK EXAMPLES:\n"
-            for model_name, fields in models.items():
-                mock_data = "{\n"
-                for field_name, field_info in fields.items():
-                    field_type = field_info.get('type', 'str')
-                    mock_value = self._generate_mock_value_for_type(field_type)
-                    mock_data += f'    "{field_name}": {mock_value},\n'
-                mock_data += "}"
-                model_examples += f"\n{model_name} mock example:\n```json\n{mock_data}\n```\n"
         
         prompt = f"""You are an expert Python testing specialist. Generate comprehensive pytest test cases for the given code.
 
@@ -599,12 +603,13 @@ SOURCE CODE:
 {source_code}
 ```
 
+{model_reference_code}
+
 FUNCTIONS REQUIRING TESTS:
 {function_details}
 
 LIBRARY CONTEXT:
 - Used libraries: {', '.join(used_libraries)}
-{model_examples}
 
 TEST GENERATION REQUIREMENTS:
 ## STRICT GUIDELINES
@@ -637,7 +642,7 @@ TEST GENERATION REQUIREMENTS:
 12. Use class-level fixtures with self parameter instead of function-level fixtures when testing classes
 
 CRITICAL AREAS TO ANALYZE:
-Examine the source code carefully to identify:
+Examine the source code and model references carefully to identify:
 - Required model fields and their exact types
 - Case sensitivity in field names (especially STATIONCOUNT vs stationcount)
 - API endpoint URL patterns and formats
@@ -713,17 +718,20 @@ RESULT FORMAT (just the code, no explanations):
 def main():
     """Main entry point."""
     # Get configuration from environment
-    api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         print("Error: No API key found. Set OPENROUTER_API_KEY or OPENAI_API_KEY")
         sys.exit(1)
+    
+    # Get optional model
+    model = os.getenv("OPENAI_MODEL", "google/gemini-2.0-flash-001")
     
     coverage_threshold = float(os.getenv("COVERAGE_THRESHOLD", "80"))
     target_files_str = os.getenv("TARGET_FILES", "")
     target_files = [f.strip() for f in target_files_str.split(",") if f.strip()]
     
     # Initialize generator
-    generator = UniversalTestGenerator(api_key, coverage_threshold)
+    generator = UniversalTestGenerator(api_key, coverage_threshold, model)
     
     # Load coverage data if available
     coverage_data = None
