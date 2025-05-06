@@ -517,57 +517,38 @@ LIBRARY CONTEXT:
 TEST GENERATION REQUIREMENTS:
 ## STRICT GUIDELINES
 1. Write ONLY valid Python test code with no explanations or markdown
-2. Include proper imports for ALL required packages and modules:
-   - Import ALL necessary dependencies including exception classes (e.g., 'aiodns.error.DNSError')
-   - ALWAYS import 'orjson' when working with JSON data
-   - Import all relevant project exceptions
-   - Import unittest.mock components explicitly for all mocking needs
-3. Import the module under test correctly with proper namespace
+2. Include proper imports for ALL required packages and modules
+3. Import the module under test correctly
 4. Focus on COMPLETE test coverage for functions with low coverage
-5. For ALL models (Stats, Country, Language, Tag, Station), ensure:
-   - Stats model MUST include 'supported_version' of type int
-   - Country model MUST include 'stationcount' attribute
-   - Tag model MUST include 'stationcount' attribute
-   - Language model MUST include 'code' of type Optional[str]
-   - Station model MUST include 'bitrate' and 'change_uuid' fields
-   - ALWAYS verify model field names match EXACTLY what's in the error messages
-   - Match field TYPES exactly (int, str, bool, Optional[str], etc.)
-   - Include ALL required fields in EVERY model instance
-6. For JSON data handling:
-   - Ensure ALL JSON strings are properly formatted without malformed characters
-   - Escape quotes and special characters correctly in JSON strings
-   - Manually review string templates to avoid malformed JSON
-   - ALWAYS validate JSON structure before using it in tests
-   - Use orjson.dumps() and orjson.loads() consistently
-7. For asynchronous code:
-   - ALWAYS await coroutines properly and NEVER iterate over them directly
-   - Use pytest.mark.asyncio decorator for ALL async tests
-   - Convert all async mock return values to awaitable objects
-   - Use AsyncMock instead of MagicMock for any async function
-8. For mocking DNS queries and requests:
-   - Set side_effect or return_value to properly handle multiple calls
-   - Use call_count=1 restrictions when testing with assert_called_once
-   - For SRV record queries, ensure mock is configured to handle exactly 5 calls
-   - Mock ALL external services including DNS lookups and HTTP requests
-9. For API endpoints:
-   - Use EXACT endpoint paths from source code
-   - Double-check URLs between 'stations/search/byname/' vs 'stations/search/name/'
-   - Ensure path consistency between tests and assertions
-10. Implement proper test isolation:
-    - Reset all mocks between tests
-    - Use separate mock instances for each test
-    - Avoid mock configuration that impacts other tests
-11. Create descriptive test function names that indicate what is being tested
-12. When asserting values, ensure case sensitivity and exact type matching
-13. IMPORTANT: DO NOT use pytest-mock fixtures (mocker). Use unittest.mock directly:
+5. For model classes and mock responses:
+   - Analyze model structures carefully to include ALL required fields
+   - Ensure field types match exactly what the models expect
+   - Pay special attention to serialization requirements
+6. For asynchronous code:
+   - Use appropriate async patterns throughout
+   - Handle coroutines correctly in all contexts
+7. For mocking external services:
+   - Configure mocks to handle the exact number of expected calls
+   - Set up appropriate return values and side effects
+8. For API endpoints:
+   - Use exact endpoint paths from the source code
+9. For error handling:
+   - Test all relevant error scenarios
+   - Import and use correct exception classes
+10. Create descriptive test function names that indicate what is being tested
+11. IMPORTANT: DO NOT use pytest-mock fixtures (mocker). Use unittest.mock directly:
     ```python
     from unittest.mock import patch, AsyncMock, MagicMock, call
     ```
-14. Use class-level fixtures with self parameter for class tests
-15. CRITICAL: For DNS query mocks that should be called only once:
-    - Use proper side_effect configuration to limit calls
-    - Consider using reset_mock() between test sections
-    - For tests expecting one call with 'query' method, explicitly handle multiple calls
+12. Use class-level fixtures with self parameter instead of function-level fixtures when testing classes
+
+CRITICAL AREAS TO ANALYZE:
+Examine the source code carefully to identify:
+- Required model fields and their exact types
+- API endpoint URL patterns and formats
+- Asynchronous function behavior
+- External service interaction patterns
+- Error handling approaches
 
 RESULT FORMAT (just the code, no explanations):
 ```python
