@@ -514,110 +514,96 @@ LIBRARY CONTEXT:
 - Used libraries: {', '.join(used_libraries)}
 {model_examples}
 
-CRITICAL TEST GENERATION RULES:
+TEST GENERATION REQUIREMENTS:
 
-1. IMPORTS & STRUCTURE
-   - Import pytest, unittest.mock.AsyncMock/MagicMock as needed
-   - Use the EXACT import paths as used in the source module
-   - Order imports: stdlib → third-party → local project imports
-   - Import only what's needed for testing
+1. Generate pytest test functions with descriptive names that explain what they're testing
+2. ALL test functions for async code MUST be decorated with @pytest.mark.asyncio , ALL calls to async methods MUST be prefixed with 'await'
+3. For class methods, create appropriate test fixtures that properly mock dependencies
+4. Include ALL necessary import statements at the top and CAREFULLY respect the project's import structure
+5. Create realistic mocks for external dependencies like aiohttp, requests, filesystem, etc.
+6. Write comprehensive assertions that verify both happy paths and error cases
+7. If HTTP requests are involved, use aresponses or unittest.mock.patch to mock them
+8. For database or I/O operations, use appropriate mocking strategies
+9. Add type hints to fixture functions for better maintainability
+10. Follow the project's existing pattern and style for tests
+11. For each test function, test one specific behavior or scenario
+12. Ensure all tests are isolated and don't depend on other tests
+13. Write tests that specifically target the uncovered functions, lines and branches
+14. When mocking model responses, include ALL required fields with appropriate types
+15. For complex objects, create complete mock structures matching the dataclass definitions
+16. All models need every field specified in their dataclasses (check for MissingField errors)
+17. Handle async functions correctly with appropriate AsyncMock setup
+18. Ensure side_effects for timeout/connection errors are properly handled
+19. Make sure close() is actually called when testing it
+20. Verify error cases with proper exception context management
+21. CAREFULLY examine the project structure and produce CORRECT import paths that match the actual module organization
 
-2. MODEL INSTANCES RULES (HIGHEST PRIORITY):
-   - ALWAYS include ALL REQUIRED fields in model instances
-   - EXACTLY match field names as defined in the models
-   - NEVER add fields that don't exist in the model
-   - Check model fields from the SOURCE CODE, not assumptions
-   - For mashumaro/pydantic models, ensure all required fields are provided
-   - Use EXACT field names from the model definition, not variants
-   - When mocking responses, include ALL required fields
+ASYNC MOCKING RULES (CRITICAL):
 
-3. ASYNC TESTING RULES (MANDATORY):
-   - ALL async functions MUST have @pytest.mark.asyncio decorator
-   - Use AsyncMock exclusively for async functions/methods
-   - ALWAYS await async function calls - NEVER leave coroutines unawaited
-   - NEVER iterate directly over a coroutine - await it first
-   - For collections of async results, use list comprehension with await:
-     ```python
-     # CORRECT
-     results = [await some_async_func() for _ in range(5)]
-     
-     # WRONG - TypeError: argument of type 'coroutine' is not iterable
-     results = await some_async_func()
-     for item in results:  # Error if results is a coroutine
-         ...
-     ```
-   - For async context managers:
-     ```python
-     mock_session = AsyncMock()
-     mock_response = AsyncMock()
-     mock_session.request.return_value.__aenter__.return_value = mock_response
-     ```
-   - When mocking methods that return awaitable objects
-   
-4. MOCKING GUIDELINES:
-   - Mock at the import location, not definition location
-   - Use proper mock types: AsyncMock for async, MagicMock for sync
-   - Set return_value or side_effect appropriately
-   - For sequential calls, use side_effect with a list
-   - Mock ALL external dependencies (APIs, databases, file systems)
+1. ALWAYS use AsyncMock from unittest.mock for mocking asynchronous methods
+2. For async context managers, mock both aenter and aexit:
+    ```python
+    mock_session.request.return_value.aenter.return_value = mock_response
+    mock_session.request.return_value.aexit.return_value = None
+    ```
+3. For mocking aiohttp.ClientSession or similar async clients:
+    ```python
+    # Create the response mock first
+    mock_response = AsyncMock()
+    mock_response.text.return_value = '{"key": "value"}'
+    mock_response.json.return_value = {"key": "value"}
 
-5. FIXTURES:
-   - Create fixtures for complex test setup
-   - Use pytest.fixture decorator
-   - Never call fixtures directly - pass as parameters
-   - Consider fixture scope (function, class, module)
-   - Name fixtures descriptively
+    # Then set up the session mock correctly
+    mock_session.request = AsyncMock()
+    mock_session.request.return_value = AsyncMock()
+    mock_session.request.return_value.__aenter__.return_value = mock_response
+    ```
+4. For mocked errors, use side_effect:
+    ```python
+    mock_session.request.side_effect = aiohttp.ClientError()
+    mock_session.request.side_effect = asyncio.TimeoutError()
+    ```
+5. NEVER use a regular MagicMock for methods that will be awaited
+6. ALWAYS use await when calling an async method, e.g.:
+    ```python
+    result = await radio_browser.stats()  # CORRECT
+    # NOT: result = radio_browser.stats()  # WRONG - would return a coroutine
+    ```
+7. For methods that return lists or generators, ensure the mock returns the appropriate structure:
+    ```python
+    mock_response.text.return_value = '[{"id": 1}, {"id": 2}]'
+    ```
 
-6. ERROR HANDLING:
-   - Test both success and error cases
-   - Use pytest.raises for expected exceptions
-   - Mock timeouts, connection errors, and API failures
-   - Verify error messages and types
+CRITICAL PROBLEMS TO AVOID:
+1. NEVER call fixtures directly in test functions or within other fixtures
+2. ALWAYS pass fixture references as parameters to test functions
+3. When mocking async functions, you MUST use AsyncMock or a mock that returns a Future/coroutine
+4. Make sure mocks for async functions return awaitable objects
+5. When mocking libraries like aiohttp, the side_effect or return_value MUST be awaitable (like AsyncMock())
+6. Always properly define all variables before use
+7. For AsyncMock, import it from unittest.mock (from unittest.mock import AsyncMock)
+8. NEVER invent module paths that don't exist (e.g., don't treat a module as a package)
+9. DO NOT create nested import paths unless they actually exist in the project
+10. DO verify that all imports resolve correctly for the project structure
 
-7. DATACLASS/MODEL TESTING:
-   - Include ALL required fields in mock data
-   - Match field types exactly
-   - Handle Optional/Union types properly
-   - Never mock non-existent fields
-   - Test serialization/deserialization if relevant
-   - Double-check field names against source code
+IMPORT STRUCTURE RULES:
+1. Examine the actual module structure of the project before creating imports
+2. Respect the package boundaries - don't treat modules as packages
+3. Check if the module is imported directly or through a package
+4. Use the correct relative or absolute imports based on the project structure
+5. Keep imports organized (stdlib first, third-party second, local project imports last)
 
-8. HTTP/API TESTING:
-   - Mock API responses completely
-   - Test different status codes
-   - Mock network errors
-   - Verify request parameters
+CODE FORMAT RULES:
+1. First import statements (stdlib, then third-party, then local)
+2. Then fixtures (with clear docstrings explaining their purpose)
+3. Then test functions (with clear docstrings explaining what they test)
+4. Use descriptive variable names and avoid magic numbers
+5. Include proper type hints where appropriate
 
-9. TEST NAMING:
-   - Use descriptive test names: test_function_succeeds_when_condition
-   - Follow pattern: test_[what]_[when]_[expected]
-   - Be specific about what's being tested
-
-10. ASSERTIONS:
-    - Use specific assertions (assert_called_once_with)
-    - Verify return values and types
-    - Check state changes
-    - Validate side effects
-
-COMMON PITFALLS TO AVOID:
-- Never use regular Mock for async functions
-- Don't forget to await async calls
-- Never attempt to iterate over an unawaited coroutine
-- Don't assume field names - check the source code 
-- Include ALL required fields in model instances
-- Don't call fixtures directly
-- Avoid magic numbers - use constants
-- Don't test implementation details
-- Don't skip error cases
-
-OUTPUT FORMAT:
-- IMPORTANT: Return ONLY Python code, NOT Markdown. DO NOT USE TRIPLE BACKTICKS (```).
-- Start with necessary imports
-- Define fixtures if needed
-- Write test functions
-- Include docstrings explaining what each test does
-
-Generate complete, production-ready test code following all these guidelines.
+RESULT FORMAT (just the code, no explanations):
+```python
+# Complete test file with imports, fixtures, and test functions
+```
 """
     
         return prompt
