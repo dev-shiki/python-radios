@@ -613,35 +613,22 @@ FUNCTIONS REQUIRING TESTS:
 LIBRARY CONTEXT:
 - Used libraries: {', '.join(used_libraries)}
 
-KEY REQUIREMENTS:
-1. Import correctly:
-   - Use unittest.mock (patch, AsyncMock, MagicMock, call)
-   - Import pytest.mark.asyncio for async tests
+Before writing tests, analyze:
+1. Coding patterns and conventions used
+2. Data model structures and field requirements
+3. How API interactions are structured
+4. Async patterns and resource management
 
-2. Study models carefully:
-   - Use exact field names as defined in code
-   - Use correct enum members from definitions
-   - Match field types precisely
+Create tests that:
+- Have correct imports and fixtures
+- Follow good pytest practices
+- Properly handle async operations
+- Accurately mock external services
+- Verify all edge cases and error paths
 
-3. Handle async code correctly:
-   - await all coroutines before using their results
-   - Use AsyncMock for async functions
-   - Set awaitable return values for async mocks
+Include appropriate fixtures, mocks, and assertions based on your analysis.
 
-4. Verify API interactions:
-   - Match exact endpoint paths from implementation
-   - Convert values to expected API formats
-   - Properly handle string vs boolean conversions
-
-5. Ensure resource cleanup:
-   - Verify close() methods are called
-   - Test context manager exit behavior
-
-2. Define ALL fixtures explicitly:
-   - ALWAYS define any fixtures your tests use 
-   - Include proper fixture scope and teardown as needed
-
-Write only the complete test code with no explanations.
+Write only the test code, no explanations.
 ```python
 """
     
