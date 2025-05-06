@@ -472,7 +472,7 @@ Always deliver production-ready, minimal test code that achieves maximum coverag
             
             # Quick check for common model indicators
             indicators = [
-                'class', '@dataclass', 'mashumaro', 'BaseModel', 
+                'enum', 'class', '@dataclass', 'mashumaro', 'BaseModel', 
                 'DataClassJSONMixin', 'SerializationMixin', 'field'
             ]
             
