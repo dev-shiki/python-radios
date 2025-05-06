@@ -573,6 +573,7 @@ RESULT FORMAT (just the code, no explanations):
 ```python
 # Complete test file with imports, fixtures, and test functions
 ```
+"""
     
         return prompt
     
