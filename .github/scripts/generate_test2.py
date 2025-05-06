@@ -729,7 +729,7 @@ Follow these best practices when writing the tests:
    * Matching API endpoint formats exactly]
    * When working with enums, always use the exact enum member names 
    * Never directly use the string values of enums
-   * Pay special attention to underscores and capitalization in enum names
+   * Pay special ATTENTION to mashumaro.exceptions.MissingField
    * Maintain exact case sensitivity in field names
    * Match field types precisely (bool, int, str, Optional[str], etc.)
 
