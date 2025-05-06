@@ -522,8 +522,10 @@ TEST GENERATION REQUIREMENTS:
 4. Focus on COMPLETE test coverage for functions with low coverage
 5. For model classes and mock responses:
    - Analyze model structures carefully to include ALL required fields
-   - Ensure field types match exactly what the models expect
-   - Pay special attention to serialization requirements
+   - Pay close attention to field case sensitivity (stationcount vs STATIONCOUNT)
+   - Ensure common fields like 'supported_version', 'code', and 'bitrate' are included
+   - Match field types exactly with what models expect (int, Optional[str], etc.)
+   - When in doubt, include more fields rather than fewer
 6. For asynchronous code:
    - Use appropriate async patterns throughout
    - Handle coroutines correctly in all contexts
@@ -545,6 +547,7 @@ TEST GENERATION REQUIREMENTS:
 CRITICAL AREAS TO ANALYZE:
 Examine the source code carefully to identify:
 - Required model fields and their exact types
+- Case sensitivity in field names (especially STATIONCOUNT vs stationcount)
 - API endpoint URL patterns and formats
 - Asynchronous function behavior
 - External service interaction patterns
