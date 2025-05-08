@@ -698,22 +698,24 @@ FUNCTIONS REQUIRING TESTS:
 LIBRARY CONTEXT:
 - Used libraries: {', '.join(used_libraries)}
 
-FOCUS ON:
-1. Testing core functionality thoroughly
-2. Proper mocking of dependencies
-3. Comprehensive edge case handling
-4. Async patterns when needed
+Key requirements:
+1. DO NOT use pytest-mock or the 'mocker' fixture - use patch from unittest.mock directly
+2. Import unittest.mock explicitly (from unittest.mock import patch, MagicMock)
+3. Create concise tests with descriptive names (test_should_x_when_y)
+4. Use pytest fixtures when needed with appropriate scopes
+5. Mock external dependencies properly with patch decorators or context managers
+6. Include tests for edge cases and error paths
+7. Use correct async patterns when testing async code
 
-IMPORTANT:
-- Create independent tests that work in isolation
-- Use descriptive test names (test_should_x_when_y)
-- Include appropriate fixtures 
-- Use unittest.mock (not pytest-mock)
-- For models and enums, use exact field names
-- Test expected exceptions with pytest.raises
+IMPORTANT RULES:
+- DO NOT import or use pytest-mock
+- Always mock external API calls and dependencies
+- Use exact field names from models/enums
+- Handle async functions correctly with await
+- Test exception cases with pytest.raises
 
 RETURN:
-Working pytest code only. No explanations
+Only executable Python code. No explanations
 """
         return prompt
     
