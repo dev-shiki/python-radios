@@ -711,11 +711,18 @@ CRITICAL FOR DATA MODELS:
 - Respect exact field names and types as defined in model references
 - Never omit fields even if they appear optional in the type definition
 
+ASYNC TESTING REQUIREMENTS:
+- When mocking async functions, always use AsyncMock from unittest.mock
+- Ensure all async function calls are awaited properly
+- Use appropriate async fixtures and setup as needed
+- Test both success and error paths in async code
+- Remember that mocked async functions must return awaitable objects
+
 IMPORTANT:
 - Create independent tests that work in isolation
 - Use descriptive test names (test_should_x_when_y)
 - Include appropriate fixtures
-- Use unittest.mock (not pytest-mock)
+- Use unittest.mock correctly for sync and async code
 - Test expected exceptions with pytest.raises
 
 RETURN:
