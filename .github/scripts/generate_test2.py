@@ -175,7 +175,7 @@ class UniversalTestGenerator:
     
     def _get_system_prompt(self) -> str:
         """Return the system prompt for the AI model."""
-        return """You are an elite Python test writer. Create production-ready pytest code that handles all edge cases without explanations or formatting."""
+        return """You are a Python testing expert who writes correct, efficient pytest code."""
 
     def _get_module_name(self, file_path: Path) -> str:
         """Convert file path to importable module name."""
@@ -698,30 +698,19 @@ FUNCTIONS REQUIRING TESTS:
 LIBRARY CONTEXT:
 - Used libraries: {', '.join(used_libraries)}
 
-Follow these test guidelines:
+KEY GUIDELINES:
+1. Use unittest.mock for mocking (not pytest-mock)
+2. For async code:
+   - Mark tests with @pytest.mark.asyncio
+   - Correctly configure AsyncMock objects (.return_value, NOT the mock itself)
+   - Always await coroutines - never iterate over them directly
+   - Properly handle async context managers and cleanup
 
-1. IMPORTS: Include ALL necessary imports at the top (unittest.mock, pytest, any external libraries used by the code)
+3. Include all necessary imports at the top
+4. Test both success and error cases
+5. Use descriptive test names
 
-2. ASYNC TESTING:
-   - Use @pytest.mark.asyncio for async tests
-   - Always await ALL coroutines properly
-   - Always await cleanup methods like .close()
-
-3. DATA HANDLING:
-   - Provide complete data for all models
-   - Handle JSON correctly with proper validation
-   - Use exact field names as defined in models
-
-4. PROPER MOCKING:
-   - Use unittest.mock (NOT pytest-mock)
-   - For async code, use AsyncMock with proper awaitable returns
-   - Mock all external services and APIs
-
-5. ERROR CASES:
-   - Test exceptions with pytest.raises
-   - Handle edge cases and invalid inputs
-
-Output complete, working test code only. No explanations or markdown.
+Return only Python code - no explanations or markdown.
 """
         return prompt
     
