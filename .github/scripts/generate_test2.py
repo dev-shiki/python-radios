@@ -175,7 +175,7 @@ class UniversalTestGenerator:
     
     def _get_system_prompt(self) -> str:
         """Return the system prompt for the AI model."""
-        return """You are an expert Python test engineer specializing in pytest. Generate only fully executable test code, handling async, serialization, and mocking correctly."""
+        return """You are an elite Python test writer. Create production-ready pytest code that handles all edge cases without explanations or formatting."""
 
     def _get_module_name(self, file_path: Path) -> str:
         """Convert file path to importable module name."""
@@ -706,6 +706,8 @@ Follow these test guidelines:
    - Use @pytest.mark.asyncio for async tests
    - Always await ALL coroutines properly
    - Always await cleanup methods like .close()
+   - Configure AsyncMock properly: use return_value/side_effect that returns awaitable objects
+   - For AsyncMock returns, use: mock_obj.method.return_value = asyncio.Future(); mock_obj.method.return_value.set_result(your_data)
 
 3. DATA HANDLING:
    - Provide complete data for all models
