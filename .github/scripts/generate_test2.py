@@ -698,24 +698,22 @@ FUNCTIONS REQUIRING TESTS:
 LIBRARY CONTEXT:
 - Used libraries: {', '.join(used_libraries)}
 
-TESTING GUIDELINES:
-1. For data models:
-   - Provide ALL required fields when creating model instances
-   - Always use complete model data to prevent missing field errors
-   - Use correct field types as defined in models
+FOCUS ON:
+1. Testing core functionality thoroughly
+2. Proper mocking of dependencies
+3. Comprehensive edge case handling
+4. Async patterns when needed
 
-2. For async functions:
-   - Use AsyncMock (not MagicMock) for mocking async dependencies
-   - Ensure mocks used with await are properly configured as awaitable
-   - Use patch as a decorator or regular context manager, not as async context manager
-   - Always await coroutines properly
+IMPORTANT:
+- Create independent tests that work in isolation
+- Use descriptive test names (test_should_x_when_y)
+- Include appropriate fixtures 
+- Use unittest.mock (not pytest-mock)
+- For models and enums, use exact field names
+- Test expected exceptions with pytest.raises
 
-3. General:
-   - Use unittest.mock (not pytest-mock)
-   - Include necessary imports
-   - Test success and error cases
-
-Return only Python code.
+RETURN:
+Working pytest code only. No explanations, comments outside of code, or markdown.
 """
         return prompt
     
