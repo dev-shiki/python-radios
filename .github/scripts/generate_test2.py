@@ -668,7 +668,7 @@ class UniversalTestGenerator:
         
         if all_reference_files:
             model_reference_code = "\nMODEL AND ENUM REFERENCE FILES:\n"
-            for file_path in all_reference_files:
+            for file_path in enum_reference_files:
                 model_definitions = self.extract_model_definitions(file_path)
                 if model_definitions:
                     # Use str(file_path) instead of trying to make it relative
@@ -712,6 +712,7 @@ KEY GUIDELINES:
 
 Return only Python code - no explanations or markdown.
 """
+        print(prompt)
         return prompt
     
     def save_test_file(self, file_path: Path, test_code: str) -> Path:
