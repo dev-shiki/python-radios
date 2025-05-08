@@ -668,7 +668,7 @@ class UniversalTestGenerator:
         
         if all_reference_files:
             model_reference_code = "\nMODEL AND ENUM REFERENCE FILES:\n"
-            for file_path in enum_reference_files:
+            for file_path in all_reference_files:
                 model_definitions = self.extract_model_definitions(file_path)
                 if model_definitions:
                     # Use str(file_path) instead of trying to make it relative
@@ -700,19 +700,24 @@ LIBRARY CONTEXT:
 
 KEY GUIDELINES:
 1. Use unittest.mock for mocking (not pytest-mock)
+
 2. For async code:
    - Mark tests with @pytest.mark.asyncio
    - Correctly configure AsyncMock objects (.return_value, NOT the mock itself)
    - Always await coroutines - never iterate over them directly
    - Properly handle async context managers and cleanup
 
-3. Include all necessary imports at the top
-4. Test both success and error cases
-5. Use descriptive test names
+3. For data models:
+   - Include ALL required fields when creating model instances
+   - For mashumaro models, ensure no MissingField exceptions by providing all mandatory fields
+   - Use exact field names as defined in the model
+
+4. Include all necessary imports at the top
+5. Test both success and error cases
+6. Use descriptive test names
 
 Return only Python code - no explanations or markdown.
 """
-        print(prompt)
         return prompt
     
     def save_test_file(self, file_path: Path, test_code: str) -> Path:
