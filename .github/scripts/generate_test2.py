@@ -705,8 +705,9 @@ TESTING GUIDELINES:
    - Use correct field types as defined in models
 
 2. For async functions:
-   - Use proper async test patterns
-   - Configure mocks correctly for async code
+   - Use proper async test patterns with @pytest.mark.asyncio
+   - Use AsyncMock (not regular MagicMock) for async dependencies
+   - Ensure mock objects used with 'await' are properly configured
    - Always await coroutines properly
 
 3. General:
