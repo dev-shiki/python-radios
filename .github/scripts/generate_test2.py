@@ -698,25 +698,23 @@ FUNCTIONS REQUIRING TESTS:
 LIBRARY CONTEXT:
 - Used libraries: {', '.join(used_libraries)}
 
-KEY GUIDELINES:
-1. Use unittest.mock for mocking (not pytest-mock)
+TESTING GUIDELINES:
+1. For data models:
+   - Provide ALL required fields when creating model instances
+   - Always use complete model data to prevent missing field errors
+   - Use correct field types as defined in models
 
-2. For async code:
-   - Mark tests with @pytest.mark.asyncio
-   - Correctly configure AsyncMock objects (.return_value, NOT the mock itself)
-   - Always await coroutines - never iterate over them directly
-   - Properly handle async context managers and cleanup
+2. For async functions:
+   - Use proper async test patterns
+   - Configure mocks correctly for async code
+   - Always await coroutines properly
 
-3. For data models:
-   - Include ALL required fields when creating model instances
-   - For mashumaro models, ensure no MissingField exceptions by providing all mandatory fields
-   - Use exact field names as defined in the model
+3. General:
+   - Use unittest.mock (not pytest-mock)
+   - Include necessary imports
+   - Test success and error cases
 
-4. Include all necessary imports at the top
-5. Test both success and error cases
-6. Use descriptive test names
-
-Return only Python code - no explanations or markdown.
+Return only Python code.
 """
         return prompt
     
