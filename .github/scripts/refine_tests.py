@@ -121,6 +121,7 @@ TEST FAILURE OUTPUT:
 
 Return only the fixed code, with no explanations.
 """
+        print(prompt)
         return prompt
     
     def refine_test_file(self, test_file: Path, test_output: str) -> str:
