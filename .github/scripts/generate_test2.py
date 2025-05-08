@@ -704,12 +704,18 @@ FOCUS ON:
 3. Comprehensive edge case handling
 4. Async patterns when needed
 
+CRITICAL FOR DATA MODELS:
+- ALWAYS include ALL fields when instantiating any data model
+- For serialization libraries (mashumaro, pydantic, dataclasses), initialize every field explicitly
+- Set Optional fields to None if no other value is appropriate
+- Respect exact field names and types as defined in model references
+- Never omit fields even if they appear optional in the type definition
+
 IMPORTANT:
 - Create independent tests that work in isolation
 - Use descriptive test names (test_should_x_when_y)
-- Include appropriate fixtures 
+- Include appropriate fixtures
 - Use unittest.mock (not pytest-mock)
-- For models and enums, use exact field names
 - Test expected exceptions with pytest.raises
 
 RETURN:
