@@ -705,11 +705,10 @@ TESTING GUIDELINES:
    - Use correct field types as defined in models
 
 2. For async functions:
-   - Use @pytest.mark.asyncio decorator
-   - Use AsyncMock (not MagicMock) for async functions
-   - When patching async context managers, use proper setup
-   - Never await MagicMock objects - they're not awaitable
-   - Always use AsyncMock for anything that will be awaited
+   - Use AsyncMock (not MagicMock) for mocking async dependencies
+   - Ensure mocks used with await are properly configured as awaitable
+   - Use patch as a decorator or regular context manager, not as async context manager
+   - Always await coroutines properly
 
 3. General:
    - Use unittest.mock (not pytest-mock)
