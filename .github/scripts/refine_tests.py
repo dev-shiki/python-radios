@@ -105,7 +105,7 @@ class TestRefiner:
         
         filtered_output = "\n".join(relevant_failures)
         
-        prompt = f"""You are an expert Python test debugger specializing in fixing failing tests. You need to fix the following test file based on its failure output:
+        prompt = f"""Fix this Python test code based on the failure output:
 
 TEST FILE PATH: {test_file}
 
@@ -119,16 +119,7 @@ TEST FAILURE OUTPUT:
 {filtered_output}
 ```
 
-REQUIREMENTS:
-Fix ALL errors in the test file
-
-IMPORTANT:
-- Keep the overall test structure intact
-- Don't remove or skip tests
-- Only fix what's broken
-- Preserve working test code
-
-Return ONLY the complete fixed test file with no explanations.
+Return only the fixed code, with no explanations.
 """
         
         return prompt
@@ -180,12 +171,7 @@ Return ONLY the complete fixed test file with no explanations.
     
     def _get_system_prompt(self) -> str:
         """Get system prompt for test refinement."""
-        return """You are a Python test refinement specialist focused on fixing failing tests. 
-
-You are especially good at identifying and fixing all issues from raw test failure output.
-
-Return ONLY the complete fixed Python code with no explanations or markdown - just the working test file.
-"""
+        return """You are a test repair specialist who fixes Python test code based on failure output."""
     
     def save_refined_test(self, test_file: Path, refined_code: str) -> bool:
         """
