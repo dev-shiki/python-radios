@@ -177,7 +177,7 @@ jobs:
           # Run the test refiner directly
           poetry run python .github/scripts/refine_tests.py
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       
       # Step 7: Final validation
       - name: 🔍 Final test validation

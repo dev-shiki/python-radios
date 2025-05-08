@@ -175,17 +175,7 @@ class UniversalTestGenerator:
     
     def _get_system_prompt(self) -> str:
         """Return the system prompt for the AI model."""
-        return """You are a master Python test generator. Your expertise:
-- Write concise yet comprehensive pytest tests
-- Mock external dependencies perfectly  
-- Test edge cases and error paths
-- Use correct async/await patterns
-- Name tests clearly and descriptively
-
-IMPORTANT: Do NOT include any Markdown formatting (like ```python) in your output. 
-Return only clean Python code without backticks or any non-Python syntax.
-
-Always deliver production-ready, minimal test code that achieves maximum coverage."""
+        return """You are a Python test expert who creates high-quality pytest tests. Deliver only clean, executable Python code without markdown formatting, explanations, or non-code content."""
 
     def _get_module_name(self, file_path: Path) -> str:
         """Convert file path to importable module name."""
@@ -708,34 +698,22 @@ FUNCTIONS REQUIRING TESTS:
 LIBRARY CONTEXT:
 - Used libraries: {', '.join(used_libraries)}
 
-Follow these best practices when writing the tests:
+FOCUS ON:
+1. Testing core functionality thoroughly
+2. Proper mocking of dependencies
+3. Comprehensive edge case handling
+4. Async patterns when needed
 
-1. First, analyze:
-   * Study model and enum definitions to understand all required fields and constants
-   * Observe naming conventions and patterns in the code
-   * Examine API endpoint structures and formats
-   * Note how async code and resources are managed
+IMPORTANT:
+- Create independent tests that work in isolation
+- Use descriptive test names (test_should_x_when_y)
+- Include appropriate fixtures 
+- Use unittest.mock (not pytest-mock)
+- For models and enums, use exact field names
+- Test expected exceptions with pytest.raises
 
-2. Structure your tests with:
-   * Direct imports from unittest.mock (not pytest-mock)
-   * Pytest fixtures defined at appropriate scopes
-   * Clear, descriptive test method names
-   * Logical grouping of related tests
-
-3. Pay careful attention to:
-   * Using correct constants/enums as defined in the source
-   * Properly awaiting async functions and testing cleanup
-   * Validating all mock data before use in tests
-   * Matching API endpoint formats exactly
-
-4. For model data and enums:
-   * Include all required fields with proper types
-   * Use exact field names as defined in models
-   * Use proper enum references (e.g., Order.NAME not "name")
-   * Ensure proper serialization/deserialization in tests
-
-Provide complete, working test code with no explanations or comments outside of code.
-```python
+RETURN:
+Working pytest code only. No explanations
 """
         return prompt
     
