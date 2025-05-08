@@ -706,8 +706,7 @@ Follow these test guidelines:
    - Use @pytest.mark.asyncio for async tests
    - Always await ALL coroutines properly
    - Always await cleanup methods like .close()
-   - Configure AsyncMock properly: use return_value/side_effect that returns awaitable objects
-   - For AsyncMock returns, use: mock_obj.method.return_value = asyncio.Future(); mock_obj.method.return_value.set_result(your_data)
+   - Configure AsyncMock returns properly for await expressions
 
 3. DATA HANDLING:
    - Provide complete data for all models
@@ -716,7 +715,9 @@ Follow these test guidelines:
 
 4. PROPER MOCKING:
    - Use unittest.mock (NOT pytest-mock)
-   - For async code, use AsyncMock with proper awaitable returns
+   - For async methods, configure AsyncMock correctly:
+     * Use .return_value = AsyncMock() for nested async calls
+     * Set .return_value to an awaitable object, not just AsyncMock
    - Mock all external services and APIs
 
 5. ERROR CASES:
