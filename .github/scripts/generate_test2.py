@@ -20,7 +20,7 @@ class UniversalTestGenerator:
     def __init__(self, 
                  api_key: str,
                  coverage_threshold: float = 80.0,
-                 model: str = "openai/gpt-4o-mini"):
+                 model: str = "google/gemini-2.0-flash-001"):
         """Initialize with minimal configuration."""
         self.api_key = api_key
         self.coverage_threshold = coverage_threshold
@@ -785,7 +785,7 @@ def main():
         sys.exit(1)
     
     # Get optional model
-    model = os.getenv("OPENAI_MODEL", "openai/gpt-4o-mini")
+    model = os.getenv("OPENAI_MODEL", "google/gemini-2.0-flash-001")
     
     coverage_threshold = float(os.getenv("COVERAGE_THRESHOLD", "80"))
     target_files_str = os.getenv("TARGET_FILES", "")
