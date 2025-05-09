@@ -110,6 +110,13 @@ jobs:
         if: ${{ fromJson(steps.find-modules.outputs.modules)[0] != null }}
         run: |
           poetry run pytest tests/ -v --cov=src --cov-report=json:coverage-post-generation.json 2>&1 | tee test-errors.log
+          # Check if any tests failed
+          if grep -q "FAILED" test-errors.log; then
+            echo "has_failed_tests=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_failed_tests=false" >> $GITHUB_OUTPUT
+          fi
+        id: test-run
       
       # Step 5: Analyze coverage improvement and test failures
       - name: 📊 Analyze coverage and test results
@@ -162,7 +169,7 @@ jobs:
                   json.dump(analysis, f, indent=2)
               
               # Output for GitHub Actions
-              needs_refinement = len(analysis["still_low"]) > 0 or len(analysis["failed_tests"]) > 0
+              needs_refinement = len(analysis["failed_tests"]) > 0
               print(f"needs_refinement={needs_refinement}")
           
           if __name__ == "__main__":
@@ -171,10 +178,11 @@ jobs:
           
           poetry run python analyze_test_results.py >> $GITHUB_OUTPUT
       
-      # Step 6: Refine tests based on feedback (only if needed)
+      # Step 6: Refine tests based on feedback (only if tests failed)
       - name: 🔄 Refine failing tests
+        if: ${{ steps.test-run.outputs.has_failed_tests == 'true' }}
         run: |
-          # Run the test refiner directly
+          echo "Some tests failed. Running test refiner..."
           poetry run python .github/scripts/refine_tests.py
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -192,6 +200,7 @@ jobs:
         run: |
           cat > create_summary.py << 'EOF'
           import json
+          import os
           
           try:
               initial = json.load(open('coverage-initial.json'))

@@ -728,12 +728,12 @@ REQUIREMENTS:
    - When asserting calls, verify the code actually reaches the call point
    - Mock external dependencies completely to isolate units under test
 
-5. PYTEST BEST PRACTICES:
-   - Create fixtures at appropriate scope levels
-   - Use parametrize for testing variations efficiently
-   - Properly scope fixtures (function, class, module)
-   - Test exception cases with pytest.raises contextmanager
-   - Group related tests in classes when appropriate
+5. URL AND HTTP TESTING:
+   - Use unittest.mock.ANY for URL parameters in assert_called_with
+   - Don't directly compare URL strings; libraries often convert them to URL objects
+   - For URL verification, either use string matching on parts or convert to string
+   - When testing HTTP clients, verify only essential URL components
+   - For exact URL testing, use str(url) to normalize objects and strings
 
 6. API TESTING CONSIDERATIONS:
    - Do not assume order of items in returned collections
@@ -742,6 +742,13 @@ REQUIREMENTS:
    - For sorted data, verify the sorting logic explicitly
    - For paginated APIs, test both single page and multi-page scenarios
    - Validate type and structure rather than exact values when possible
+
+7. PYTEST BEST PRACTICES:
+   - Create fixtures at appropriate scope levels
+   - Use parametrize for testing variations efficiently
+   - Properly scope fixtures (function, class, module)
+   - Test exception cases with pytest.raises contextmanager
+   - Group related tests in classes when appropriate
 
 Return only runnable pytest code with no explanations or markdown. The code must be immediately usable without any modifications.
 """
