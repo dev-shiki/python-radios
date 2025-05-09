@@ -735,6 +735,14 @@ REQUIREMENTS:
    - Test exception cases with pytest.raises contextmanager
    - Group related tests in classes when appropriate
 
+6. API TESTING CONSIDERATIONS:
+   - Do not assume order of items in returned collections
+   - Instead of asserting by index position, find items by key/property
+   - Use set comparisons for unordered collections when appropriate  
+   - For sorted data, verify the sorting logic explicitly
+   - For paginated APIs, test both single page and multi-page scenarios
+   - Validate type and structure rather than exact values when possible
+
 Return only runnable pytest code with no explanations or markdown. The code must be immediately usable without any modifications.
 """
         return prompt
