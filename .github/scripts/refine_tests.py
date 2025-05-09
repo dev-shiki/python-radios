@@ -105,7 +105,7 @@ class TestRefiner:
         
         filtered_output = "\n".join(relevant_failures)
         
-        prompt = f"""Fix this Python test code based on the failure output:
+        prompt = f"""Fix the failing Python test based on the error output below.
 
 TEST FILE PATH: {test_file}
 
@@ -119,7 +119,19 @@ TEST FAILURE OUTPUT:
 {filtered_output}
 ```
 
-Return only the fixed code, with no explanations.
+IMPORTANT GUIDELINES:
+1. Fix ALL errors shown in the output
+2. Maintain the original test structure and intent
+3. Consider issues with:
+   - Mocking (correct return values and assertions)
+   - Data structures (field requirements, ordering)
+   - Asynchronous code (proper awaiting and async patterns)
+   - URL handling (string vs object comparisons)
+   - Type compatibility (expected vs actual types)
+4. Return ONLY the complete fixed test code with no explanations
+5. Make minimal changes necessary to fix the failing tests
+
+The fixed code should pass when executed with pytest.
 """
         print(prompt)
         return prompt
@@ -171,7 +183,10 @@ Return only the fixed code, with no explanations.
     
     def _get_system_prompt(self) -> str:
         """Get system prompt for test refinement."""
-        return """You are a test repair specialist who fixes Python test code based on failure output."""
+        return """You are an expert Python test engineer who specializes in fixing failing pytest tests. Your task is to analyze test failure outputs and produce corrected test code that passes successfully. You understand common testing patterns, mocking techniques, and framework-specific behaviors.
+
+Provide complete, working code that addresses all test failures while maintaining the original test's intent and coverage. Return only the fixed code without explanations unless specifically requested.
+"""
     
     def save_refined_test(self, test_file: Path, refined_code: str) -> bool:
         """
