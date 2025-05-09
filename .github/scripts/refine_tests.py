@@ -150,7 +150,7 @@ Return only the fixed code, with no explanations.
         try:
             print(f"Generating refinements for {test_file}...")
             response = self.openai_client.chat.completions.create(
-                model="openai/gpt-4o-mini",  # High-quality model for test fixing
+                model="anthropic/claude-3.7-sonnet",  # High-quality model for test fixing
                 messages=[
                     {"role": "system", "content": self._get_system_prompt()},
                     {"role": "user", "content": prompt}
