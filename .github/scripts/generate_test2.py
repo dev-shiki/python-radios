@@ -667,7 +667,7 @@ class UniversalTestGenerator:
         model_reference_code = ""
         
         if all_reference_files:
-            model_reference_code = "\nMODEL AND ENUM REFERENCE FILES:\n"
+            model_reference_code = "\nMODELS AND TYPES:\n"
             for file_path in all_reference_files:
                 model_definitions = self.extract_model_definitions(file_path)
                 if model_definitions:
@@ -678,7 +678,7 @@ class UniversalTestGenerator:
         # Extract function details
         function_details = self._extract_detailed_function_info(uncovered_functions)
         
-        prompt = f"""Generate pytest tests for the following Python code. Return only executable Python code without explanations or markdown formatting.
+        prompt = f"""Generate complete pytest tests for the code below.
 
 MODULE INFORMATION:
 - File: {source_file}
@@ -698,43 +698,44 @@ FUNCTIONS REQUIRING TESTS:
 LIBRARY CONTEXT:
 - Used libraries: {', '.join(used_libraries)}
 
-TESTING REQUIREMENTS:
+REQUIREMENTS:
 
-1. GENERAL PRINCIPLES:
-   - Create thorough, independent tests for each function/method
-   - Use clear, descriptive test names (test_should_X_when_Y)
-   - Test happy paths, edge cases, and error conditions
-   - Prioritize readability and maintainability
+1. FUNDAMENTALS:
+   - Write comprehensive tests for all public functions/methods
+   - Test both success and failure paths
+   - Use descriptive test names (test_function_scenario format)
+   - Ensure each test stands alone and doesn't depend on other tests
 
-2. DATA MODEL HANDLING:
-   - When instantiating ANY data model or dataclass, always provide ALL fields
-   - For Optional fields, explicitly set them to None when not otherwise specified
-   - Never omit fields from model initialization, even if they're Optional
-   - Use exact field names and types from the model definitions
-   - Pay special attention to serialization libraries (pydantic, mashumaro, dataclasses)
+2. DATA HANDLING:
+   - When creating ANY model instance, always include EVERY field
+   - Never omit fields from constructors, even if they seem optional
+   - For Optional fields, explicitly set to None or a valid value
+   - Match exact field names and types from model definitions
+   - Create valid test data that meets all model constraints
 
-3. ASYNC CODE TESTING:
-   - Use unittest.mock.AsyncMock for mocking async functions
-   - Ensure AsyncMock return values are properly awaitable
-   - Properly await all async calls in test functions (marked with pytest.mark.asyncio)
-   - Use async fixtures with proper scoping for test setup and teardown
-   - Test both successful completion and exceptions in async code paths
+3. ASYNC PATTERNS:
+   - Configure AsyncMock objects with awaitable return values
+   - Use pytest.mark.asyncio for all tests containing await expressions
+   - Always await async function calls, including mocked functions
+   - Properly handle async context managers (__aenter__/__aexit__)
+   - Set up async iterators correctly when needed
+   - Ensure all async resources are properly closed/cleaned up
 
-4. MOCKING BEST PRACTICES:
-   - Import Mock and AsyncMock directly from unittest.mock, not pytest
-   - Set appropriate return values and side effects for all mocks
-   - Verify mock calls with assert_called_with where appropriate
-   - Create Mock objects that match the interface of the mocked component
-   - Use autospec=True when appropriate to ensure type safety
+4. MOCKING ESSENTIALS:
+   - Import Mock/AsyncMock directly from unittest.mock
+   - Set return_value before using the mock
+   - For side_effects that raise exceptions, use side_effect=Exception()
+   - When asserting calls, verify the code actually reaches the call point
+   - Mock external dependencies completely to isolate units under test
 
-5. PYTEST FEATURES:
-   - Use pytest.raises for testing exceptions
-   - Create fixtures at appropriate scopes (function, class, module)
-   - Use parametrize for testing multiple input variations
-   - Mock external dependencies and isolate the unit under test
-   - Structure tests logically by class/function
+5. PYTEST BEST PRACTICES:
+   - Create fixtures at appropriate scope levels
+   - Use parametrize for testing variations efficiently
+   - Properly scope fixtures (function, class, module)
+   - Test exception cases with pytest.raises contextmanager
+   - Group related tests in classes when appropriate
 
-Your response should contain ONLY working Python test code - no explanations, commentary, or markdown formatting. The code should be immediately usable without any modifications.
+Return only runnable pytest code with no explanations or markdown. The code must be immediately usable without any modifications.
 """
         return prompt
     
