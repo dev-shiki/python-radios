@@ -1,0 +1,25 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.12, pytest-8.3.5, pluggy-1.5.0 -- /home/runner/.cache/pypoetry/virtualenvs/radios-gpNiz_mh-py3.11/bin/python
+cachedir: .pytest_cache
+rootdir: /home/runner/work/python-radios/python-radios
+configfile: pyproject.toml
+plugins: cov-6.1.1, aresponses-3.0.0, syrupy-4.9.1, asyncio-0.26.0
+asyncio: mode=Mode.AUTO, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 1 item
+
+tests/test_radios.py::test_json_request PASSED                           [100%]
+
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.11.12-final-0 _______________
+
+Name                          Stmts   Miss Branch BrPart  Cover   Missing
+-------------------------------------------------------------------------
+src/radios/models.py             84      9      4      0    85%   22, 26, 108-110, 130, 150-152
+src/radios/radio_browser.py     111     64     34      4    35%   75-78, 83-84, 87-89, 106-114, 126-127, 142, 169-194, 221-237, 286-313, 327-334, 365-383, 410-422, 426-427, 437, 447
+tests/__init__.py                 4      2      0      0    50%   8-9
+-------------------------------------------------------------------------
+TOTAL                           254     75     38      4    63%
+
+4 files skipped due to complete coverage.
+Required test coverage of 50.0% reached. Total coverage: 62.67%
+============================== 1 passed in 0.18s ===============================
