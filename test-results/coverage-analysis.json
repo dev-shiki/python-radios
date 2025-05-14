@@ -1,0 +1,16 @@
+{
+  "improvements": [
+    {
+      "file": "src/radios/radio_browser.py",
+      "from": 35.172413793103445,
+      "to": 41.37931034482759
+    }
+  ],
+  "still_low": [
+    {
+      "file": "src/radios/radio_browser.py",
+      "coverage": 41.37931034482759
+    }
+  ],
+  "failed_tests": []
+}
