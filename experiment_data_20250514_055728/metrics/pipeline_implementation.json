@@ -1,0 +1,28 @@
+{
+  "workflow": {
+    "exists": true,
+    "uses_openrouter": true,
+    "has_coverage_threshold": true,
+    "has_refinement": true,
+    "steps_count": 20,
+    "estimated_execution_time": null
+  },
+  "generation_script": {
+    "exists": true,
+    "model_used": "claude-3-sonnet",
+    "prompt_strategy": "multi-stage",
+    "handles_async": true,
+    "uses_refinement": false,
+    "custom_features": [
+      "model_analysis",
+      "async_handling",
+      "mock_generation"
+    ]
+  },
+  "execution_logs": {
+    "github_run_id": "15013339567",
+    "github_run_number": "1",
+    "generation_metrics": "Starting experiment at Wed May 14 05:56:41 UTC 2025\nRunning enhanced data collection at Wed May 14 05:57:28 UTC 2025\n",
+    "api_logs": "[]\n"
+  }
+}

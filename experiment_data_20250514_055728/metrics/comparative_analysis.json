@@ -1,0 +1,20 @@
+{
+  "manual_vs_ai": {
+    "time_comparison": null,
+    "quality_comparison": null,
+    "coverage_comparison": null
+  },
+  "time_savings": {
+    "manual_estimate_minutes": 465,
+    "ai_actual_seconds": 300,
+    "savings_minutes": 460.0,
+    "efficiency_ratio": 93.0
+  },
+  "roi_metrics": {
+    "tests_generated": 31,
+    "coverage_improvement": 0,
+    "time_saved_hours": 7.666666666666667,
+    "cost_savings_estimate": 460.0
+  },
+  "developer_feedback": null
+}

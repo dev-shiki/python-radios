@@ -1,0 +1,12 @@
+{
+  "test_failures": [],
+  "refinement_success": {
+    "attempts": 1,
+    "successful": 0,
+    "rate": 0
+  },
+  "common_error_patterns": [],
+  "false_positives": 0,
+  "false_negatives": 0,
+  "missed_edge_cases": []
+}
