@@ -168,7 +168,6 @@ jobs:
       
       # Debug step to verify outputs (only for troubleshooting)
       - name: 🔍 Debug test run outputs
-        if: ${{ github.event.inputs.debug == 'true' }}
         continue-on-error: true
         run: |
           echo "Test run output - has_failed_tests: ${{ steps.test-run.outputs.has_failed_tests }}"
