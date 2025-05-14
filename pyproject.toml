@@ -35,6 +35,8 @@ orjson = ">=3.9.8"
 pycountry = "^24.0.0"
 python = "^3.11"
 yarl = ">=1.6.0"
+pytest-coverage = "^0.0"
+openai = "^1.78.1"
 
 [tool.poetry.urls]
 "Bug Tracker" = "https://github.com/frenck/python-radios/issues"

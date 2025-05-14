@@ -1,0 +1,22 @@
+Experiment started at Wed May 14 06:35:24 UTC 2025
+Repository: dev-shiki/python-radios
+Run ID: 15013921832
+Run Number: 145
+Initial coverage generated at Wed May 14 06:35:28 UTC 2025
+Found 1 modules below % coverage
+Processing 1 modules
+=== Generating tests for src/radios/radio_browser.py ===
+Module: src/radios/radio_browser.py, Time: 91 seconds
+Total generation time: 91 seconds
+Running tests at Wed May 14 06:36:59 UTC 2025
+=== Coverage Summary ===
+# Coverage Summary
+
+**Initial Coverage**: 61.5%
+**Final Coverage**: 96.5%
+**Improvement**: 35.0%
+
+## Module Improvements
+
+- `src/radios/radio_browser.py`: 35.2% → 97.9% (+62.8%)
+- `src/radios/models.py`: 85.2% → 89.8% (+4.5%)
