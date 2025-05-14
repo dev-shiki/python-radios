@@ -1,0 +1,2 @@
+[]
+{"timestamp": 1747214187.0401602, "file": "src/radios/radio_browser.py", "prompt_length": 32325, "model": "anthropic/claude-3.7-sonnet", "response_length": 30780, "clean_code_length": 30766, "generation_time": 102.7478232383728, "success": true, "token_usage": {"prompt_tokens": 8698, "completion_tokens": 8294, "total_tokens": 16992}}
