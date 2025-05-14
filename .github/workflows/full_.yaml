@@ -271,10 +271,37 @@ jobs:
       
       # Step 10: Collect comprehensive experiment data
       - name: 📦 Collect comprehensive experiment data
-        if: github.event.inputs.collect_data == 'true'
+        if: always()  # Selalu jalan
+        continue-on-error: true
         run: |
           echo "Running comprehensive data collection..."
-          poetry run python .github/scripts/enhanced_collect_experiment_data.py
+          echo "Input collect_data: ${{ github.event.inputs.collect_data }}"
+          
+          # Skip if explicitly disabled
+          if [ "${{ github.event.inputs.collect_data }}" = "false" ]; then
+            echo "Data collection disabled by user input"
+            exit 0
+          fi
+          
+          # Run enhanced collector
+          poetry run python .github/scripts/enhanced_collect_experiment_data.py || {
+            echo "Enhanced collection failed, creating basic archive..."
+            
+            # Basic fallback
+            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+            mkdir -p experiment_data_fallback_$TIMESTAMP
+            
+            cp -r tests experiment_data_fallback_$TIMESTAMP/ 2>/dev/null || true
+            cp *.json experiment_data_fallback_$TIMESTAMP/ 2>/dev/null || true
+            cp *.txt experiment_data_fallback_$TIMESTAMP/ 2>/dev/null || true
+            cp *.md experiment_data_fallback_$TIMESTAMP/ 2>/dev/null || true
+            
+            zip -r experiment_data_fallback_$TIMESTAMP.zip experiment_data_fallback_$TIMESTAMP/
+          }
+          
+          # List all data files
+          echo "Data archives created:"
+          ls -la experiment_data_*.zip || echo "No data archives found"
       
       # Step 11: Store artifacts
       - name: 💾 Store artifacts
