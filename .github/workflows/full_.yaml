@@ -1,6 +1,7 @@
 name: Auto Generate Tests with Complete Data 
 
 on:
+  push:
   workflow_dispatch:
     inputs:
       coverage_threshold:
