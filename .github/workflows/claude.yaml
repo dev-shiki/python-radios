@@ -19,7 +19,6 @@ on:
         type: choice
         options:
           - 'true'
-          - 'false'
 
 env:
   DEFAULT_PYTHON: "3.11"
