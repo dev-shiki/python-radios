@@ -1,0 +1,69 @@
+{
+  "summary": {
+    "total_test_files": 2,
+    "total_test_cases": 31,
+    "total_async_tests": 31,
+    "total_assertions": 63,
+    "total_mocks": 17,
+    "files_with_edge_cases": 1,
+    "refinement_iterations": 0
+  },
+  "test_details": [
+    {
+      "file": "tests/test_radios.py",
+      "size_bytes": 815,
+      "test_count": 1,
+      "async_test_count": 1,
+      "assertion_count": 1,
+      "mock_count": 0,
+      "has_edge_cases": false,
+      "test_names": [
+        "test_json_request"
+      ],
+      "complexity_score": 7
+    },
+    {
+      "file": "tests/test_radio_browser.py",
+      "size_bytes": 25688,
+      "test_count": 30,
+      "async_test_count": 30,
+      "assertion_count": 62,
+      "mock_count": 17,
+      "has_edge_cases": true,
+      "test_names": [
+        "test_init",
+        "test_request_dns_lookup",
+        "test_request_creates_session",
+        "test_request_timeout",
+        "test_request_connection_error",
+        "test_request_socket_error",
+        "test_request_invalid_content_type",
+        "test_stats",
+        "test_station_click",
+        "test_countries",
+        "test_countries_with_params",
+        "test_countries_kosovo_special_case",
+        "test_languages",
+        "test_languages_with_params",
+        "test_search",
+        "test_search_with_filter",
+        "test_search_with_params",
+        "test_station",
+        "test_station_not_found",
+        "test_stations",
+        "test_stations_with_filter",
+        "test_stations_with_params",
+        "test_tags",
+        "test_tags_with_params",
+        "test_close",
+        "test_close_no_session",
+        "test_close_not_owner",
+        "test_aenter",
+        "test_aexit",
+        "test_context_manager"
+      ],
+      "complexity_score": 434
+    }
+  ],
+  "generation_time": null
+}

@@ -1,0 +1,146 @@
+{
+  "structure": {
+    "total_source_files": 5,
+    "total_test_files": 2,
+    "source_files": [
+      "src/radios/radio_browser.py",
+      "src/radios/models.py",
+      "src/radios/const.py",
+      "src/radios/exceptions.py",
+      "src/radios/__init__.py"
+    ],
+    "test_files": [
+      "tests/test_radios.py",
+      "tests/test_radio_browser.py"
+    ]
+  },
+  "functions": {
+    "total_functions": 17,
+    "async_functions_count": 12,
+    "async_functions_details": [
+      {
+        "file": "src/radios/radio_browser.py",
+        "function": "_request",
+        "line": 43
+      },
+      {
+        "file": "src/radios/radio_browser.py",
+        "function": "stats",
+        "line": 118
+      },
+      {
+        "file": "src/radios/radio_browser.py",
+        "function": "station_click",
+        "line": 129
+      },
+      {
+        "file": "src/radios/radio_browser.py",
+        "function": "countries",
+        "line": 145
+      },
+      {
+        "file": "src/radios/radio_browser.py",
+        "function": "languages",
+        "line": 197
+      },
+      {
+        "file": "src/radios/radio_browser.py",
+        "function": "search",
+        "line": 240
+      },
+      {
+        "file": "src/radios/radio_browser.py",
+        "function": "station",
+        "line": 315
+      },
+      {
+        "file": "src/radios/radio_browser.py",
+        "function": "stations",
+        "line": 337
+      },
+      {
+        "file": "src/radios/radio_browser.py",
+        "function": "tags",
+        "line": 386
+      },
+      {
+        "file": "src/radios/radio_browser.py",
+        "function": "close",
+        "line": 424
+      },
+      {
+        "file": "src/radios/radio_browser.py",
+        "function": "__aenter__",
+        "line": 429
+      },
+      {
+        "file": "src/radios/radio_browser.py",
+        "function": "__aexit__",
+        "line": 439
+      }
+    ]
+  },
+  "dependencies": {
+    "project_dependencies": [
+      "aiodns",
+      "aiohttp",
+      "awesomeversion",
+      "backoff",
+      "cachetools",
+      "mashumaro",
+      "orjson",
+      "pycountry",
+      "python",
+      "yarl"
+    ],
+    "imported_modules": [
+      "asyncio",
+      "the",
+      "enum",
+      "aiodns",
+      "DNSResolver",
+      ".exceptions",
+      "datetime",
+      "exception",
+      ".radio_browser",
+      "orjson",
+      "dataclass",
+      "socket",
+      "FilterBy",
+      "Any",
+      ".models",
+      "RadioBrowser",
+      "mashumaro.mixins.orjson",
+      "mashumaro.types",
+      "hdrs",
+      "mashumaro",
+      "aiohttp",
+      ".const",
+      "SerializationStrategy",
+      "pycountry",
+      "yarl",
+      "AwesomeVersion",
+      "random",
+      "dataclasses",
+      "backoff",
+      "Country",
+      "cast",
+      "Enum",
+      "DataClassORJSONMixin",
+      "annotations",
+      "awesomeversion",
+      "__future__",
+      "field_options",
+      "typing",
+      "URL"
+    ]
+  },
+  "initial_coverage": {
+    "line_coverage": 91.72661870503597,
+    "branch_coverage": 0,
+    "function_coverage": 0,
+    "statements": 240,
+    "missing_lines": 11
+  },
+  "coverage_gaps": []
+}

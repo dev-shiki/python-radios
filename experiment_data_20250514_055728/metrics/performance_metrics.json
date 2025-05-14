@@ -1,0 +1,11 @@
+{
+  "generation_time": null,
+  "refinement_time": null,
+  "total_pipeline_time": null,
+  "api_metrics": {
+    "total_tokens": 0,
+    "api_calls": 1,
+    "average_tokens_per_call": 0.0
+  },
+  "resource_usage": {}
+}

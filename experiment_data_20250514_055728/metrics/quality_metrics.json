@@ -1,0 +1,28 @@
+{
+  "test_validity": {
+    "valid": 31,
+    "invalid": 0,
+    "rate": 100.0
+  },
+  "assertion_metrics": {
+    "total": 63,
+    "per_test": 2.032258064516129,
+    "density": 2.377089386107233
+  },
+  "mocking_metrics": {
+    "total": 17,
+    "per_test": 0.5483870967741935,
+    "adequacy": 50.0
+  },
+  "edge_case_metrics": {
+    "coverage": 50.0,
+    "files_with_edge_cases": 1
+  },
+  "test_patterns": [
+    "class_based",
+    "async_tests",
+    "mock_usage",
+    "exception_testing",
+    "fixtures"
+  ]
+}
