@@ -834,7 +834,7 @@ REQUIREMENTS:
    - Ensure mocks are properly reset between tests
    - Use spec=True for mocks to catch interface changes
 
-NOTE: ERROR INJECTION FOR REFINEMENT
+ERROR INJECTION FOR REFINEMENT:
    - Create exactly ONE test with a deliberate minor error (wrong assertion value)
    - This error should be easily fixable but cause the test to fail
    - Comment the error with: # TODO: Fix this assertion

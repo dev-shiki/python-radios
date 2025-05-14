@@ -217,7 +217,7 @@ jobs:
       
       # Step 6: Refine failing tests (if needed)
       - name: 🔄 Refine failing tests
-        if: steps.test-run.outputs.has_failed_tests == 'true'
+        if: ${{ steps.test-run.outputs.has_failed_tests == 'true' }}
         continue-on-error: true
         run: |
           echo "Some tests failed. Running test refiner..."
