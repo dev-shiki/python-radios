@@ -1,4 +1,4 @@
-name: Auto Generate Tests with Complete Data
+name: Auto Generate Tests with Complete Data 
 
 on:
   push:
@@ -26,8 +26,8 @@ env:
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
 jobs:
-  generate-tests:
-    name: Generate Tests and Collect Complete Data
+  find-and-generate:
+    name: Generate Tests with Complete Data Collection
     runs-on: ubuntu-latest
     steps:
       - name: ⤵️ Check out code from GitHub
@@ -52,12 +52,17 @@ jobs:
         run: poetry install --no-interaction
       
       - name: 🏗 Install AI test generation dependencies
-        run: poetry add pytest-coverage openai
-      
-      # Initialize data collection
-      - name: 📋 Initialize data collection
         run: |
+          poetry add pytest-coverage openai
+          pip install pandas matplotlib seaborn  # For data collection
+      
+      # Setup data collection
+      - name: 🔧 Setup data collection
+        run: |
+          # Create directories
           mkdir -p data_collection/{metrics,logs,artifacts,reports,visualizations}
+          
+          # Initialize log files  
           echo '[]' > api_interaction_logs.json
           echo "Experiment started at $(date)" > generation_metrics.txt
           echo "Repository: ${{ github.repository }}" >> generation_metrics.txt
@@ -67,148 +72,215 @@ jobs:
       - name: 📊 Generate initial coverage report
         run: |
           poetry run pytest --cov=src --cov-report=json:coverage-initial.json || true
-          echo "Initial coverage generated at $(date)" >> generation_metrics.txt
+          echo "Initial coverage saved to coverage-initial.json"
       
       # Step 2: Find files needing tests
       - name: 🔍 Find modules needing tests
         id: find-modules
         run: |
+          cat > find_coverage_gaps.py << 'EOF'
+          import json
+          import sys
+          
+          def find_low_coverage(threshold=80):
+              try:
+                  with open('coverage-initial.json', 'r') as f:
+                      coverage_data = json.load(f)
+              except:
+                  print("[]")
+                  return
+              
+              low_coverage_files = []
+              for file_path, file_data in coverage_data.get('files', {}).items():
+                  if '/test_' not in file_path and '/__init__.py' not in file_path:
+                      coverage = file_data.get('summary', {}).get('percent_covered', 0)
+                      if coverage < threshold:
+                          low_coverage_files.append({
+                              'path': file_path,
+                              'coverage': coverage
+                          })
+              
+              low_coverage_files.sort(key=lambda x: x['coverage'])
+              print(json.dumps([f['path'] for f in low_coverage_files]))
+          
+          if __name__ == "__main__":
+              threshold = float(sys.argv[1]) if len(sys.argv) > 1 else 80
+              find_low_coverage(threshold)
+          EOF
+          
           COVERAGE_THRESHOLD=${{ github.event.inputs.coverage_threshold }}
-          poetry run python .github/scripts/find_coverage_gaps.py $COVERAGE_THRESHOLD > modules.json || echo "[]" > modules.json
+          poetry run python find_coverage_gaps.py $COVERAGE_THRESHOLD > modules.json
           echo "modules=$(cat modules.json)" >> $GITHUB_OUTPUT
-          echo "Found $(cat modules.json | jq '. | length') modules" >> generation_metrics.txt
       
-      # Step 3: Generate tests (dengan continue-on-error)
+      # Step 3: Generate tests for each module
       - name: 🤖 Generate initial tests
-        id: test-generation
-        continue-on-error: true  # Lanjut meski ada error
+        continue-on-error: true
         run: |
           MODULES='${{ steps.find-modules.outputs.modules }}'
           
-          # Check if we have modules to process
-          if [ "$(echo "$MODULES" | jq '. | length')" -eq 0 ]; then
-            echo "No modules to process"
-            echo "generation_status=no_modules" >> $GITHUB_OUTPUT
+          # Check if we have modules
+          if [ "$MODULES" = "[]" ]; then
+            echo "No modules found below coverage threshold"
             exit 0
           fi
           
-          TOTAL_START=$(date +%s)
-          SUCCESS_COUNT=0
-          FAIL_COUNT=0
+          echo "Starting test generation..." >> generation_metrics.txt
           
           echo "$MODULES" | jq -r '.[]' | while read MODULE; do
-            echo "=== Generating tests for $MODULE ===" | tee -a generation_metrics.txt
-            MODULE_START=$(date +%s)
+            echo "Generating tests for $MODULE"
+            START_TIME=$(date +%s)
             
-            if poetry run python .github/scripts/generate_test2.py --module "$MODULE" 2>&1 | tee -a test_generation.log; then
-              SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-            else
-              FAIL_COUNT=$((FAIL_COUNT + 1))
-              echo "Failed to generate tests for $MODULE" >> generation_metrics.txt
-            fi
+            poetry run python .github/scripts/generate_test2.py --module "$MODULE"
             
-            MODULE_END=$(date +%s)
-            echo "Module: $MODULE, Time: $((MODULE_END - MODULE_START)) seconds" >> generation_metrics.txt
+            END_TIME=$(date +%s)
+            echo "Module: $MODULE, Time: $((END_TIME - START_TIME)) seconds" >> generation_metrics.txt
           done
-          
-          TOTAL_END=$(date +%s)
-          echo "Total generation time: $((TOTAL_END - TOTAL_START)) seconds" >> generation_metrics.txt
-          echo "Success: $SUCCESS_COUNT, Failed: $FAIL_COUNT" >> generation_metrics.txt
-          
-          # Set status output
-          if [ $SUCCESS_COUNT -gt 0 ]; then
-            echo "generation_status=partial_success" >> $GITHUB_OUTPUT
-          else
-            echo "generation_status=all_failed" >> $GITHUB_OUTPUT
-          fi
       
-      # Step 4: Run tests if any were generated
+      # Step 4: Run generated tests with coverage
       - name: 🧪 Run generated tests with coverage
-        id: test-run
-        if: steps.test-generation.outputs.generation_status != 'all_failed'
         continue-on-error: true
         run: |
-          echo "Running tests at $(date)" >> generation_metrics.txt
+          poetry run pytest tests/ -v --cov=src --cov-report=json:coverage-post-generation.json 2>&1 | tee test-results.log
           
-          # Check if any test files exist
-          if [ -z "$(find tests -name "test_*.py" -type f 2>/dev/null)" ]; then
-            echo "No test files found to run"
-            echo "has_tests=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
+          # Generate final coverage reports
+          poetry run pytest tests/ -v --cov=src --cov-report=html:coverage-final/
+          poetry run pytest tests/ -v --cov=src --cov-report=json:coverage-final/coverage.json
           
-          echo "has_tests=true" >> $GITHUB_OUTPUT
-          
-          # Run tests
-          poetry run pytest tests/ -v --tb=short --cov=src --cov-report=json:coverage-post-generation.json 2>&1 | tee test-results.log || true
-          
-          # Create coverage reports
-          poetry run pytest tests/ -v --cov=src --cov-report=html:coverage-final/ || true
-          poetry run pytest tests/ -v --cov=src --cov-report=json:coverage-final/coverage.json || true
-          
-          # Check for failures
+          # Check if any tests failed
           if grep -q "FAILED" test-results.log; then
-            grep -E "(FAILED|ERROR)" test-results.log > test-errors.log
             echo "has_failed_tests=true" >> $GITHUB_OUTPUT
+            grep "FAILED" test-results.log > test-errors.log
           else
             echo "has_failed_tests=false" >> $GITHUB_OUTPUT
           fi
+        id: test-run
       
-      # Step 5: Refine failing tests
+      # Step 5: Analyze coverage improvement and test failures
+      - name: 📊 Analyze coverage and test results
+        id: analyze-results
+        run: |
+          cat > analyze_test_results.py << 'EOF'
+          import json
+          import os
+          
+          def analyze_coverage():
+              initial_data = json.load(open('coverage-initial.json'))
+              try:
+                  post_data = json.load(open('coverage-post-generation.json'))
+              except:
+                  print("No post-generation coverage data")
+                  return
+              
+              analysis = {
+                  "improvements": [],
+                  "still_low": [],
+                  "failed_tests": []
+              }
+              
+              # Compare coverage
+              for file, file_data in initial_data.get('files', {}).items():
+                  initial_coverage = file_data.get('summary', {}).get('percent_covered', 0)
+                  post_coverage = post_data.get('files', {}).get(file, {}).get('summary', {}).get('percent_covered', 0)
+                  
+                  if post_coverage > initial_coverage:
+                      analysis["improvements"].append({
+                          "file": file,
+                          "from": initial_coverage,
+                          "to": post_coverage
+                      })
+                  
+                  if post_coverage < 80:
+                      analysis["still_low"].append({
+                          "file": file,
+                          "coverage": post_coverage
+                      })
+              
+              # Check for test errors
+              if os.path.exists('test-errors.log'):
+                  with open('test-errors.log', 'r') as f:
+                      errors = f.read()
+                  if 'FAILED' in errors:
+                      analysis["failed_tests"] = errors.split('\n')[:20]
+              
+              with open('coverage-analysis.json', 'w') as f:
+                  json.dump(analysis, f, indent=2)
+              
+              # Output for GitHub Actions
+              needs_refinement = len(analysis["failed_tests"]) > 0
+              print(f"needs_refinement={needs_refinement}")
+          
+          if __name__ == "__main__":
+              analyze_coverage()
+          EOF
+          
+          poetry run python analyze_test_results.py >> $GITHUB_OUTPUT
+      
+      # Step 6: Refine failing tests (if needed)
       - name: 🔄 Refine failing tests
         if: steps.test-run.outputs.has_failed_tests == 'true'
         continue-on-error: true
         run: |
-          echo "Starting refinement at $(date)" >> generation_metrics.txt
-          REFINE_START=$(date +%s)
-          
-          poetry run python .github/scripts/refine_tests.py 2>&1 | tee refinement.log || {
-            echo "Refinement failed" >> generation_metrics.txt
-          }
-          
-          REFINE_END=$(date +%s)
-          echo "Refinement time: $((REFINE_END - REFINE_START)) seconds" >> generation_metrics.txt
-          
-          # Run tests again after refinement
-          poetry run pytest tests/ -v --cov=src --cov-report=json:coverage-final/coverage.json || true
+          echo "Some tests failed. Running test refiner..."
+          poetry run python .github/scripts/refine_tests.py
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       
-      # Step 6: Generate coverage summary
-      - name: 📊 Generate coverage summary
+      # Step 7: Final validation
+      - name: 🔍 Final test validation
         continue-on-error: true
         run: |
-          poetry run python .github/scripts/create_summary.py || {
-            echo "# Coverage Summary" > COVERAGE_SUMMARY.md
-            echo "Error generating summary" >> COVERAGE_SUMMARY.md
-          }
+          poetry run pytest tests/ -v
       
-      # Step 7: Collect comprehensive experiment data (ALWAYS)
+      # Step 8: Generate final coverage report
+      - name: 📊 Generate final coverage report
+        run: |
+          poetry run pytest --cov=src --cov-report=html:coverage-final || true
+      
+      # Step 9: Create coverage summary
+      - name: 📄 Create coverage summary
+        run: |
+          cat > create_summary.py << 'EOF'
+          import json
+          import os
+          
+          try:
+              initial = json.load(open('coverage-initial.json'))
+              final = json.load(open('coverage-final/coverage.json'))
+              
+              initial_total = initial.get('totals', {}).get('percent_covered', 0)
+              final_total = final.get('totals', {}).get('percent_covered', 0)
+              
+              with open('COVERAGE_SUMMARY.md', 'w') as f:
+                  f.write("# Coverage Summary\n\n")
+                  f.write(f"**Initial Coverage**: {initial_total:.1f}%\n")
+                  f.write(f"**Final Coverage**: {final_total:.1f}%\n")
+                  f.write(f"**Improvement**: {final_total - initial_total:.1f}%\n\n")
+                  
+                  if os.path.exists('coverage-analysis.json'):
+                      with open('coverage-analysis.json', 'r') as af:
+                          analysis = json.load(af)
+                      
+                      f.write("## Coverage Improvements by File\n\n")
+                      for improvement in analysis.get('improvements', []):
+                          f.write(f"- `{improvement['file']}`: {improvement['from']:.1f}% → {improvement['to']:.1f}%\n")
+          except Exception as e:
+              print(f"Error creating summary: {e}")
+          EOF
+          
+          poetry run python create_summary.py
+      
+      # Step 10: Collect comprehensive experiment data
       - name: 📦 Collect comprehensive experiment data
-        if: github.event.inputs.collect_data == 'true' || true  # Always run for now
-        continue-on-error: true
+        if: github.event.inputs.collect_data == 'true'
         run: |
-          echo "Running comprehensive data collection at $(date)" >> generation_metrics.txt
-          
-          poetry run python .github/scripts/enhanced_collect_experiment_data.py || {
-            echo "Data collection failed, creating minimal archive..."
-            
-            # Create minimal archive if script fails
-            mkdir -p experiment_data_minimal
-            cp -r coverage-*.json experiment_data_minimal/ 2>/dev/null || true
-            cp -r tests experiment_data_minimal/ 2>/dev/null || true
-            cp generation_metrics.txt experiment_data_minimal/ 2>/dev/null || true
-            
-            zip -r experiment_data_minimal_$(date +%Y%m%d_%H%M%S).zip experiment_data_minimal/
-          }
-          
-          # List files
-          echo "Data files created:"
-          ls -la experiment_data_* || echo "No data files found"
+          echo "Running comprehensive data collection..."
+          poetry run python .github/scripts/enhanced_collect_experiment_data.py
       
-      # Step 8: Upload all artifacts
-      - name: 💾 Upload test generation artifacts
+      # Step 11: Store artifacts
+      - name: 💾 Store artifacts
         uses: actions/upload-artifact@v4.6.2
         with:
-          name: test-generation-artifacts
+          name: test-generation-results
           path: |
             tests/**/test_*.py
             coverage-*.json
@@ -217,76 +289,61 @@ jobs:
             generation_metrics.txt
             test-results.log
             test-errors.log
-            test_generation.log
-            refinement.log
             api_interaction_logs.json
-            modules.json
+            experiment_data_*.zip
             !tests/**/__pycache__/**
-          if-no-files-found: warn
+  
+  create-pr:
+    name: Create Pull Request with Generated Tests
+    needs: find-and-generate
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@v4.2.2
       
-      # Step 9: Upload experiment data
-      - name: 💾 Upload experiment data archive
-        if: always()  # Always try to upload if exists
-        uses: actions/upload-artifact@v4.6.2
+      - name: ⬇️ Download test artifacts
+        uses: actions/download-artifact@v4.2.1
         with:
-          name: experiment-data-complete
-          path: |
-            experiment_data_complete_*.zip
-            experiment_data_minimal_*.zip
-          if-no-files-found: warn
+          name: test-generation-results
+          path: test-results
       
-      # Step 10: Create workflow summary
-      - name: 📝 Create workflow summary
-        if: always()
+      - name: 📂 Prepare files for PR
         run: |
-          echo "# Test Generation Experiment Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          # Copy test files
+          mkdir -p tests
+          cp -r test-results/tests/* tests/ 2>/dev/null || true
           
-          echo "## Status" >> $GITHUB_STEP_SUMMARY
-          echo "- Generation Status: ${{ steps.test-generation.outputs.generation_status || 'unknown' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Has Tests: ${{ steps.test-run.outputs.has_tests || 'false' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Has Failed Tests: ${{ steps.test-run.outputs.has_failed_tests || 'unknown' }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          # Copy coverage reports
+          mkdir -p coverage-reports
+          cp test-results/coverage-*.json coverage-reports/ 2>/dev/null || true
+          cp -r test-results/coverage-final coverage-reports/ 2>/dev/null || true
           
-          if [ -f "COVERAGE_SUMMARY.md" ]; then
-            cat COVERAGE_SUMMARY.md >> $GITHUB_STEP_SUMMARY
-          else
-            echo "## Coverage Summary" >> $GITHUB_STEP_SUMMARY
-            echo "No coverage summary available" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Metrics" >> $GITHUB_STEP_SUMMARY
-          
-          if [ -d "tests" ]; then
-            TEST_FILES=$(find tests -name "test_*.py" 2>/dev/null | wc -l || echo 0)
-            echo "- Test Files: $TEST_FILES" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          if [ -f "generation_metrics.txt" ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Generation Metrics" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            tail -5 generation_metrics.txt >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
+          # Copy summary
+          cp test-results/COVERAGE_SUMMARY.md . 2>/dev/null || echo "# Coverage Summary\nNo summary available" > COVERAGE_SUMMARY.md
       
-      # Step 11: Create Pull Request
-      - name: 🔄 Create Pull Request  
-        if: always() && steps.test-generation.outputs.generation_status != 'all_failed'
+      - name: 🔄 Create Pull Request with generated tests
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "✅ Add AI-generated tests [Run #${{ github.run_number }}]"
-          title: "✅ AI-Generated Tests - Run #${{ github.run_number }}"
+          commit-message: "✅ Add AI-generated tests for modules with low coverage"
+          title: "✅ AI-Generated Tests - Coverage Improvement"
           body: |
-            ## AI-Generated Test Results
+            ## AI-Generated Test Coverage Improvement
             
-            - Generation Status: ${{ steps.test-generation.outputs.generation_status }}
-            - Tests Created: ${{ steps.test-run.outputs.has_tests }}
-            - Failed Tests: ${{ steps.test-run.outputs.has_failed_tests }}
+            This PR adds AI-generated tests to improve coverage for modules with coverage below ${{ github.event.inputs.coverage_threshold }}%.
             
-            ### Artifacts
-            - [View Workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            $(cat COVERAGE_SUMMARY.md)
+            
+            ### Generated Files:
+            - Test files are in the `/tests` directory
+            - Coverage reports are in `/coverage-reports`
+            
+            ### Review Notes:
+            - Tests were generated and validated automatically
+            - Some tests may need manual adjustment
+            - Check the coverage summary for improvements
+            
+            The tests were generated using AI and validated with pytest.
           branch: ai-generated-tests-${{ github.run_id }}
-          labels: automated, tests
+          labels: enhancement, automated, tests
