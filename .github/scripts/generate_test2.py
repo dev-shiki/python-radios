@@ -834,12 +834,10 @@ REQUIREMENTS:
    - Ensure mocks are properly reset between tests
    - Use spec=True for mocks to catch interface changes
 
-note : ERROR INJECTION FOR REFINEMENT :
-   - Create exactly ONE test with a deliberate minor error (wrong assertion value)
-   - This error should be easily fixable but cause the test to fail
-   - Comment the error with: # TODO: Fix this assertion
-   - The error should be in a non-critical test to allow other tests to pass
-   - Example: assert result == 41 when it should be 42
+NOTE : FAILED INJECTION FOR REFINEMENT 
+   - Create exactly ONE test with a deliberate minor FAILED
+   - This FAILED should be easily fixable but cause the test to fail
+   - The FAILED should be in a non-critical test to allow other tests to pass
 
 Return only runnable pytest code with no explanations or markdown. The code must be immediately usable without any modifications.
 """
