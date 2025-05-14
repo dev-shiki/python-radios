@@ -811,13 +811,6 @@ REQUIREMENTS:
    - Include tests for default parameter values and optional arguments
    - Test both early returns and full execution paths
 
-9. ERROR INJECTION FOR REFINEMENT:
-   - Create exactly ONE test with a deliberate minor error (wrong assertion value)
-   - This error should be easily fixable but cause the test to fail
-   - Comment the error with: # TODO: Fix this assertion
-   - The error should be in a non-critical test to allow other tests to pass
-   - Example: assert result == 41 when it should be 42
-
 10. COVERAGE PATTERNS:
    - For conditional logic: Test both True and False branches
    - For loops: Test zero, one, and multiple iterations
@@ -840,6 +833,13 @@ REQUIREMENTS:
    - Test different mock return values and side effects
    - Ensure mocks are properly reset between tests
    - Use spec=True for mocks to catch interface changes
+
+NOTE: ERROR INJECTION FOR REFINEMENT
+   - Create exactly ONE test with a deliberate minor error (wrong assertion value)
+   - This error should be easily fixable but cause the test to fail
+   - Comment the error with: # TODO: Fix this assertion
+   - The error should be in a non-critical test to allow other tests to pass
+   - Example: assert result == 41 when it should be 42
 
 Return only runnable pytest code with no explanations or markdown. The code must be immediately usable without any modifications.
 """
