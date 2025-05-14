@@ -1,0 +1,409 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.12, pytest-8.3.5, pluggy-1.5.0 -- /home/runner/.cache/pypoetry/virtualenvs/radios-gpNiz_mh-py3.11/bin/python
+cachedir: .pytest_cache
+rootdir: /home/runner/work/python-radios/python-radios
+configfile: pyproject.toml
+plugins: cov-6.1.1, anyio-4.9.0, aresponses-3.0.0, syrupy-4.9.1, asyncio-0.26.0
+asyncio: mode=Mode.AUTO, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 28 items
+
+tests/test_radio_browser.py::TestRadioBrowser::test_request_dns_resolution PASSED [  3%]
+tests/test_radio_browser.py::TestRadioBrowser::test_request_creates_session_if_none PASSED [  7%]
+tests/test_radio_browser.py::TestRadioBrowser::test_request_timeout PASSED [ 10%]
+tests/test_radio_browser.py::TestRadioBrowser::test_request_connection_error PASSED [ 14%]
+tests/test_radio_browser.py::TestRadioBrowser::test_request_socket_error PASSED [ 17%]
+tests/test_radio_browser.py::TestRadioBrowser::test_request_invalid_content_type PASSED [ 21%]
+tests/test_radio_browser.py::TestRadioBrowser::test_request_boolean_params PASSED [ 25%]
+tests/test_radio_browser.py::TestRadioBrowser::test_stats PASSED         [ 28%]
+tests/test_radio_browser.py::TestRadioBrowser::test_station_click PASSED [ 32%]
+tests/test_radio_browser.py::TestRadioBrowser::test_countries FAILED     [ 35%]
+tests/test_radio_browser.py::TestRadioBrowser::test_countries_with_parameters FAILED [ 39%]
+tests/test_radio_browser.py::TestRadioBrowser::test_languages PASSED     [ 42%]
+tests/test_radio_browser.py::TestRadioBrowser::test_languages_with_parameters FAILED [ 46%]
+tests/test_radio_browser.py::TestRadioBrowser::test_search PASSED        [ 50%]
+tests/test_radio_browser.py::TestRadioBrowser::test_search_with_filter FAILED [ 53%]
+tests/test_radio_browser.py::TestRadioBrowser::test_station_found PASSED [ 57%]
+tests/test_radio_browser.py::TestRadioBrowser::test_station_not_found PASSED [ 60%]
+tests/test_radio_browser.py::TestRadioBrowser::test_stations PASSED      [ 64%]
+tests/test_radio_browser.py::TestRadioBrowser::test_stations_with_filter FAILED [ 67%]
+tests/test_radio_browser.py::TestRadioBrowser::test_tags PASSED          [ 71%]
+tests/test_radio_browser.py::TestRadioBrowser::test_tags_with_parameters FAILED [ 75%]
+tests/test_radio_browser.py::TestRadioBrowser::test_close PASSED         [ 78%]
+tests/test_radio_browser.py::TestRadioBrowser::test_close_no_session PASSED [ 82%]
+tests/test_radio_browser.py::TestRadioBrowser::test_close_not_owned PASSED [ 85%]
+tests/test_radio_browser.py::TestRadioBrowser::test_aenter PASSED        [ 89%]
+tests/test_radio_browser.py::TestRadioBrowser::test_aexit PASSED         [ 92%]
+tests/test_radio_browser.py::TestRadioBrowser::test_context_manager PASSED [ 96%]
+tests/test_radios.py::test_json_request PASSED                           [100%]
+
+=================================== FAILURES ===================================
+_______________________ TestRadioBrowser.test_countries ________________________
+
+self = <tests.test_radio_browser.TestRadioBrowser object at 0x7fe0ae3eaad0>
+radio_browser = RadioBrowser(user_agent='Test/1.0', request_timeout=8.0, session=None, _close_session=False, _host=None)
+
+    @pytest.mark.asyncio
+    async def test_countries(self, radio_browser):
+        """Test countries method returns list of Country objects."""
+        countries_json = """
+        [
+            {
+                "name": "US",
+                "stationcount": "100"
+            },
+            {
+                "name": "XK",
+                "stationcount": "50"
+            }
+        ]
+        """
+    
+        with patch.object(radio_browser, "_request", AsyncMock(return_value=countries_json)):
+            result = await radio_browser.countries()
+    
+            assert len(result) == 2
+            assert isinstance(result[0], Country)
+>           assert result[0].code == "US"
+E           AssertionError: assert 'XK' == 'US'
+E             
+E             - US
+E             + XK
+
+tests/test_radio_browser.py:216: AssertionError
+_______________ TestRadioBrowser.test_countries_with_parameters ________________
+
+self = <tests.test_radio_browser.TestRadioBrowser object at 0x7fe0ae3eb310>
+radio_browser = RadioBrowser(user_agent='Test/1.0', request_timeout=8.0, session=None, _close_session=False, _host=None)
+
+    @pytest.mark.asyncio
+    async def test_countries_with_parameters(self, radio_browser):
+        """Test countries method with parameters."""
+        with patch.object(radio_browser, "_request", AsyncMock(return_value="[]")) as mock_request:
+            await radio_browser.countries(
+                hide_broken=True,
+                limit=10,
+                offset=5,
+                order=Order.NAME,
+                reverse=True
+            )
+    
+            mock_request.assert_called_once()
+            _, kwargs = mock_request.call_args
+>           assert kwargs["params"] == {
+                "hidebroken": "true",
+                "limit": 10,
+                "offset": 5,
+                "order": "name",
+                "reverse": "true"
+            }
+E           AssertionError: assert {'hidebroken'...: 'name', ...} == {'hidebroken'...: 'name', ...}
+E             
+E             Omitting 3 identical items, use -vv to show
+E             Differing items:
+E             {'hidebroken': True} != {'hidebroken': 'true'}
+E             {'reverse': True} != {'reverse': 'true'}
+E             
+E             Full diff:
+E               {
+E             -     'hidebroken': 'true',
+E             ?                   ^^   -
+E             +     'hidebroken': True,
+E             ?                   ^
+E                   'limit': 10,
+E                   'offset': 5,
+E                   'order': 'name',
+E             -     'reverse': 'true',
+E             ?                ^^   -
+E             +     'reverse': True,
+E             ?                ^
+E               }
+
+tests/test_radio_browser.py:239: AssertionError
+_______________ TestRadioBrowser.test_languages_with_parameters ________________
+
+self = <tests.test_radio_browser.TestRadioBrowser object at 0x7fe0ae3f4490>
+radio_browser = RadioBrowser(user_agent='Test/1.0', request_timeout=8.0, session=None, _close_session=False, _host=None)
+
+    @pytest.mark.asyncio
+    async def test_languages_with_parameters(self, radio_browser):
+        """Test languages method with parameters."""
+        with patch.object(radio_browser, "_request", AsyncMock(return_value="[]")) as mock_request:
+            await radio_browser.languages(
+                hide_broken=True,
+                limit=10,
+                offset=5,
+                order=Order.STATION_COUNT,
+                reverse=True
+            )
+    
+            mock_request.assert_called_once()
+            _, kwargs = mock_request.call_args
+>           assert kwargs["params"] == {
+                "hidebroken": "true",
+                "limit": 10,
+                "offset": 5,
+                "order": "stationcount",
+                "reverse": "true"
+            }
+E           AssertionError: assert {'hidebroken'...oncount', ...} == {'hidebroken'...oncount', ...}
+E             
+E             Omitting 3 identical items, use -vv to show
+E             Differing items:
+E             {'hidebroken': True} != {'hidebroken': 'true'}
+E             {'reverse': True} != {'reverse': 'true'}
+E             
+E             Full diff:
+E               {
+E             -     'hidebroken': 'true',
+E             ?                   ^^   -
+E             +     'hidebroken': True,
+E             ?                   ^
+E                   'limit': 10,
+E                   'offset': 5,
+E                   'order': 'stationcount',
+E             -     'reverse': 'true',
+E             ?                ^^   -
+E             +     'reverse': True,
+E             ?                ^
+E               }
+
+tests/test_radio_browser.py:293: AssertionError
+___________________ TestRadioBrowser.test_search_with_filter ___________________
+
+self = <tests.test_radio_browser.TestRadioBrowser object at 0x7fe0ae3f5710>
+radio_browser = RadioBrowser(user_agent='Test/1.0', request_timeout=8.0, session=None, _close_session=False, _host=None)
+
+    @pytest.mark.asyncio
+    async def test_search_with_filter(self, radio_browser):
+        """Test search method with filter parameters."""
+        with patch.object(radio_browser, "_request", AsyncMock(return_value="[]")) as mock_request:
+            await radio_browser.search(
+                filter_by=FilterBy.NAME,
+                filter_term="test",
+                hide_broken=True,
+                limit=10,
+                offset=5,
+                order=Order.BITRATE,
+                reverse=True,
+                name_exact=True,
+                country_exact=True,
+                state_exact=True,
+                language_exact=True,
+                tag_exact=True,
+                bitrate_min=128,
+                bitrate_max=320
+            )
+    
+            mock_request.assert_called_once()
+            args, kwargs = mock_request.call_args
+            assert args[0] == "stations/search/byname/test"
+>           assert kwargs["params"]["hidebroken"] == "true"
+E           AssertionError: assert True == 'true'
+
+tests/test_radio_browser.py:380: AssertionError
+__________________ TestRadioBrowser.test_stations_with_filter __________________
+
+self = <tests.test_radio_browser.TestRadioBrowser object at 0x7fe0ae3ea8d0>
+radio_browser = RadioBrowser(user_agent='Test/1.0', request_timeout=8.0, session=None, _close_session=False, _host=None)
+
+    @pytest.mark.asyncio
+    async def test_stations_with_filter(self, radio_browser):
+        """Test stations method with filter parameters."""
+        with patch.object(radio_browser, "_request", AsyncMock(return_value="[]")) as mock_request:
+            await radio_browser.stations(
+                filter_by=FilterBy.COUNTRY,
+                filter_term="US",
+                hide_broken=True,
+                limit=10,
+                offset=5,
+                order=Order.BITRATE,
+                reverse=True
+            )
+    
+            mock_request.assert_called_once()
+            args, kwargs = mock_request.call_args
+            assert args[0] == "stations/bycountry/US"
+>           assert kwargs["params"] == {
+                "hidebroken": "true",
+                "limit": 10,
+                "offset": 5,
+                "order": "bitrate",
+                "reverse": "true"
+            }
+E           AssertionError: assert {'hidebroken'...bitrate', ...} == {'hidebroken'...bitrate', ...}
+E             
+E             Omitting 3 identical items, use -vv to show
+E             Differing items:
+E             {'hidebroken': True} != {'hidebroken': 'true'}
+E             {'reverse': True} != {'reverse': 'true'}
+E             
+E             Full diff:
+E               {
+E             -     'hidebroken': 'true',
+E             ?                   ^^   -
+E             +     'hidebroken': True,
+E             ?                   ^
+E                   'limit': 10,
+E                   'offset': 5,
+E                   'order': 'bitrate',
+E             -     'reverse': 'true',
+E             ?                ^^   -
+E             +     'reverse': True,
+E             ?                ^
+E               }
+
+tests/test_radio_browser.py:546: AssertionError
+__________________ TestRadioBrowser.test_tags_with_parameters __________________
+
+self = <tests.test_radio_browser.TestRadioBrowser object at 0x7fe0ae3f60d0>
+radio_browser = RadioBrowser(user_agent='Test/1.0', request_timeout=8.0, session=None, _close_session=False, _host=None)
+
+    @pytest.mark.asyncio
+    async def test_tags_with_parameters(self, radio_browser):
+        """Test tags method with parameters."""
+        with patch.object(radio_browser, "_request", AsyncMock(return_value="[]")) as mock_request:
+            await radio_browser.tags(
+                hide_broken=True,
+                limit=10,
+                offset=5,
+                order=Order.STATION_COUNT,
+                reverse=True
+            )
+    
+            mock_request.assert_called_once()
+            _, kwargs = mock_request.call_args
+>           assert kwargs["params"] == {
+                "hidebroken": "true",
+                "limit": 10,
+                "offset": 5,
+                "order": "stationcount",
+                "reverse": "true"
+            }
+E           AssertionError: assert {'hidebroken'...oncount', ...} == {'hidebroken'...oncount', ...}
+E             
+E             Omitting 3 identical items, use -vv to show
+E             Differing items:
+E             {'hidebroken': True} != {'hidebroken': 'true'}
+E             {'reverse': True} != {'reverse': 'true'}
+E             
+E             Full diff:
+E               {
+E             -     'hidebroken': 'true',
+E             ?                   ^^   -
+E             +     'hidebroken': True,
+E             ?                   ^
+E                   'limit': 10,
+E                   'offset': 5,
+E                   'order': 'stationcount',
+E             -     'reverse': 'true',
+E             ?                ^^   -
+E             +     'reverse': True,
+E             ?                ^
+E               }
+
+tests/test_radio_browser.py:596: AssertionError
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.11.12-final-0 _______________
+
+Name                          Stmts   Miss Branch BrPart  Cover   Missing
+-------------------------------------------------------------------------
+src/radios/models.py             84      8      4      0    86%   22, 108-110, 130, 150-152
+src/radios/radio_browser.py     111      0     34      5    97%   88->87, 186->181, 190->194, 289->292, 368->371
+tests/__init__.py                 4      2      0      0    50%   8-9
+tests/test_radio_browser.py     276     17      2      0    94%   217-223, 381-391
+-------------------------------------------------------------------------
+TOTAL                           530     27     40      5    94%
+
+4 files skipped due to complete coverage.
+Required test coverage of 50.0% reached. Total coverage: 93.68%
+=========================== short test summary info ============================
+FAILED tests/test_radio_browser.py::TestRadioBrowser::test_countries - AssertionError: assert 'XK' == 'US'
+  
+  - US
+  + XK
+FAILED tests/test_radio_browser.py::TestRadioBrowser::test_countries_with_parameters - AssertionError: assert {'hidebroken'...: 'name', ...} == {'hidebroken'...: 'name', ...}
+  
+  Omitting 3 identical items, use -vv to show
+  Differing items:
+  {'hidebroken': True} != {'hidebroken': 'true'}
+  {'reverse': True} != {'reverse': 'true'}
+  
+  Full diff:
+    {
+  -     'hidebroken': 'true',
+  ?                   ^^   -
+  +     'hidebroken': True,
+  ?                   ^
+        'limit': 10,
+        'offset': 5,
+        'order': 'name',
+  -     'reverse': 'true',
+  ?                ^^   -
+  +     'reverse': True,
+  ?                ^
+    }
+FAILED tests/test_radio_browser.py::TestRadioBrowser::test_languages_with_parameters - AssertionError: assert {'hidebroken'...oncount', ...} == {'hidebroken'...oncount', ...}
+  
+  Omitting 3 identical items, use -vv to show
+  Differing items:
+  {'hidebroken': True} != {'hidebroken': 'true'}
+  {'reverse': True} != {'reverse': 'true'}
+  
+  Full diff:
+    {
+  -     'hidebroken': 'true',
+  ?                   ^^   -
+  +     'hidebroken': True,
+  ?                   ^
+        'limit': 10,
+        'offset': 5,
+        'order': 'stationcount',
+  -     'reverse': 'true',
+  ?                ^^   -
+  +     'reverse': True,
+  ?                ^
+    }
+FAILED tests/test_radio_browser.py::TestRadioBrowser::test_search_with_filter - AssertionError: assert True == 'true'
+FAILED tests/test_radio_browser.py::TestRadioBrowser::test_stations_with_filter - AssertionError: assert {'hidebroken'...bitrate', ...} == {'hidebroken'...bitrate', ...}
+  
+  Omitting 3 identical items, use -vv to show
+  Differing items:
+  {'hidebroken': True} != {'hidebroken': 'true'}
+  {'reverse': True} != {'reverse': 'true'}
+  
+  Full diff:
+    {
+  -     'hidebroken': 'true',
+  ?                   ^^   -
+  +     'hidebroken': True,
+  ?                   ^
+        'limit': 10,
+        'offset': 5,
+        'order': 'bitrate',
+  -     'reverse': 'true',
+  ?                ^^   -
+  +     'reverse': True,
+  ?                ^
+    }
+FAILED tests/test_radio_browser.py::TestRadioBrowser::test_tags_with_parameters - AssertionError: assert {'hidebroken'...oncount', ...} == {'hidebroken'...oncount', ...}
+  
+  Omitting 3 identical items, use -vv to show
+  Differing items:
+  {'hidebroken': True} != {'hidebroken': 'true'}
+  {'reverse': True} != {'reverse': 'true'}
+  
+  Full diff:
+    {
+  -     'hidebroken': 'true',
+  ?                   ^^   -
+  +     'hidebroken': True,
+  ?                   ^
+        'limit': 10,
+        'offset': 5,
+        'order': 'stationcount',
+  -     'reverse': 'true',
+  ?                ^^   -
+  +     'reverse': True,
+  ?                ^
+    }
+======================== 6 failed, 22 passed in 15.68s =========================
