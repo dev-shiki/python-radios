@@ -1,0 +1,16 @@
+{
+  "improvements": [
+    {
+      "file": "src/radios/models.py",
+      "from": 85.22727272727273,
+      "to": 86.36363636363636
+    },
+    {
+      "file": "src/radios/radio_browser.py",
+      "from": 35.172413793103445,
+      "to": 97.24137931034483
+    }
+  ],
+  "still_low": [],
+  "failed_tests": []
+}
