@@ -1,0 +1,341 @@
+name: Auto Generate Tests with Complete Data Collection
+
+on:
+  workflow_dispatch:
+    inputs:
+      coverage_threshold:
+        description: 'Minimum coverage percentage to target'
+        required: false
+        default: '80'
+      collect_data:
+        description: 'Collect comprehensive experiment data'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+env:
+  DEFAULT_PYTHON: "3.11"
+  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+jobs:
+  generate-tests:
+    name: Generate Tests and Collect Data
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@v4.2.2
+      
+      - name: 🏗 Set up Poetry
+        run: pipx install poetry
+      
+      - name: 🏗 Set up Python ${{ env.DEFAULT_PYTHON }}
+        id: python
+        uses: actions/setup-python@v5.5.0
+        with:
+          python-version: ${{ env.DEFAULT_PYTHON }}
+          cache: "poetry"
+      
+      - name: 🏗 Install dependencies
+        run: |
+          poetry config virtualenvs.create true
+          poetry config virtualenvs.in-project true
+          poetry install --no-interaction
+      
+      # NEW: Setup data collection script
+      - name: 📋 Setup enhanced data collection
+        run: |
+          # Copy the enhanced data collection script
+          cp .github/scripts/enhanced_collect_experiment_data.py collect_experiment_data.py
+      
+      # NEW: Initialize API logging
+      - name: 🔌 Initialize API logging
+        run: |
+          echo '[]' > api_interaction_logs.json
+          echo "Starting experiment at $(date)" > generation_metrics.txt
+      
+      # Step 1: Initial Coverage Analysis
+      - name: 📊 Generate initial coverage report  
+        run: |
+          poetry run pytest --cov=src --cov-report=json:coverage-initial.json || true
+          echo "Initial coverage saved to coverage-initial.json"
+      
+      # Step 2: Find files needing tests
+      - name: 🔍 Find modules needing tests
+        id: find-modules
+        run: |
+          cat > find_coverage_gaps.py << 'EOF'
+          import json
+          import sys
+          
+          def find_low_coverage(threshold=80):
+              try:
+                  with open('coverage-initial.json', 'r') as f:
+                      coverage_data = json.load(f)
+              except:
+                  print("[]")
+                  return
+              
+              low_coverage_files = []
+              for file_path, file_data in coverage_data.get('files', {}).items():
+                  if '/test_' not in file_path and '/__init__.py' not in file_path:
+                      coverage = file_data.get('summary', {}).get('percent_covered', 0)
+                      if coverage < threshold:
+                          low_coverage_files.append({
+                              'path': file_path,
+                              'coverage': coverage
+                          })
+              
+              low_coverage_files.sort(key=lambda x: x['coverage'])
+              print(json.dumps([f['path'] for f in low_coverage_files]))
+          
+          if __name__ == "__main__":
+              threshold = float(sys.argv[1]) if len(sys.argv) > 1 else 80
+              find_low_coverage(threshold)
+          EOF
+          
+          COVERAGE_THRESHOLD=${{ github.event.inputs.coverage_threshold }}
+          poetry run python find_coverage_gaps.py $COVERAGE_THRESHOLD > modules.json
+          echo "modules=$(cat modules.json)" >> $GITHUB_OUTPUT
+      
+      # NEW: Enhanced test generation with detailed logging
+      - name: 🤖 Generate initial tests with enhanced logging
+        if: ${{ fromJson(steps.find-modules.outputs.modules)[0] != null }}
+        run: |
+          echo "Starting test generation at $(date)" >> generation_metrics.txt
+          echo "Modules to process: $(cat modules.json)" >> generation_metrics.txt
+          
+          MODULES='${{ steps.find-modules.outputs.modules }}'
+          
+          # Initialize performance tracking
+          TOTAL_START=$(date +%s)
+          
+          echo "$MODULES" | jq -r '.[]' | while read MODULE; do
+            echo "=== Processing $MODULE ===" | tee -a generation_metrics.txt
+            
+            # Track time per module
+            MODULE_START=$(date +%s)
+            
+            # Run test generation with enhanced logging
+            poetry run python .github/scripts/generate_test2.py --module "$MODULE" 2>&1 | tee -a test_generation.log
+            
+            MODULE_END=$(date +%s)
+            MODULE_DURATION=$((MODULE_END - MODULE_START))
+            
+            echo "Module: $MODULE, Time: $MODULE_DURATION seconds" >> generation_metrics.txt
+            echo "Completed: $MODULE at $(date)" >> generation_metrics.txt
+          done
+          
+          TOTAL_END=$(date +%s)
+          TOTAL_DURATION=$((TOTAL_END - TOTAL_START))
+          echo "Total generation time: $TOTAL_DURATION seconds" >> generation_metrics.txt
+      
+      # Step 4: Run generated tests with detailed output
+      - name: 🧪 Run generated tests with coverage
+        if: ${{ fromJson(steps.find-modules.outputs.modules)[0] != null }}
+        run: |
+          echo "Running tests at $(date)" >> generation_metrics.txt
+          
+          # Run tests with detailed output
+          poetry run pytest tests/ -v --tb=short --cov=src --cov-report=json:coverage-post-generation.json 2>&1 | tee test-results.log
+          
+          # Create comprehensive coverage reports
+          poetry run pytest tests/ -v --cov=src --cov-report=html:coverage-final/
+          poetry run pytest tests/ -v --cov=src --cov-report=json:coverage-final/coverage.json
+          poetry run pytest tests/ -v --cov=src --cov-report=term-missing > coverage-terminal.txt
+          
+          # Extract test failures if any
+          if grep -q "FAILED" test-results.log; then
+            grep -E "(FAILED|ERROR)" test-results.log > test-errors.log
+            echo "has_failed_tests=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_failed_tests=false" >> $GITHUB_OUTPUT
+            echo "All tests passed" > test-errors.log
+          fi
+        id: test-run
+      
+      # Step 5: Refine failing tests with logging
+      - name: 🔄 Refine failing tests
+        if: ${{ steps.test-run.outputs.has_failed_tests == 'true' }}
+        run: |
+          echo "Starting refinement at $(date)" >> generation_metrics.txt
+          
+          # Track refinement time
+          REFINE_START=$(date +%s)
+          
+          poetry run python .github/scripts/refine_tests.py 2>&1 | tee refinement.log
+          
+          REFINE_END=$(date +%s)
+          REFINE_DURATION=$((REFINE_END - REFINE_START))
+          echo "Refinement time: $REFINE_DURATION seconds" >> generation_metrics.txt
+          
+          # Run tests again after refinement
+          poetry run pytest tests/ -v --cov=src --cov-report=json:coverage-final/coverage.json
+      
+      # Step 6: Generate coverage summary
+      - name: 📊 Generate coverage summary
+        run: |
+          cat > create_summary.py << 'EOF'
+          import json
+          import os
+          
+          try:
+              with open('coverage-initial.json', 'r') as f:
+                  initial = json.load(f)
+              with open('coverage-final/coverage.json', 'r') as f:
+                  final = json.load(f)
+              
+              initial_total = initial.get('totals', {}).get('percent_covered', 0)
+              final_total = final.get('totals', {}).get('percent_covered', 0)
+              
+              with open('COVERAGE_SUMMARY.md', 'w') as f:
+                  f.write("# Coverage Summary\n\n")
+                  f.write(f"**Initial Coverage**: {initial_total:.1f}%\n")
+                  f.write(f"**Final Coverage**: {final_total:.1f}%\n")
+                  f.write(f"**Improvement**: {final_total - initial_total:.1f}%\n\n")
+                  
+                  # Add module-level improvements
+                  f.write("## Module Improvements\n\n")
+                  if 'files' in initial and 'files' in final:
+                      for file in initial['files']:
+                          if file in final['files']:
+                              initial_cov = initial['files'][file]['summary']['percent_covered']
+                              final_cov = final['files'][file]['summary']['percent_covered']
+                              if final_cov > initial_cov:
+                                  f.write(f"- `{file}`: {initial_cov:.1f}% → {final_cov:.1f}% (+{final_cov-initial_cov:.1f}%)\n")
+          except Exception as e:
+              print(f"Error creating summary: {e}")
+              with open('COVERAGE_SUMMARY.md', 'w') as f:
+                  f.write("# Coverage Summary\nNo summary available\n")
+          EOF
+          
+          poetry run python create_summary.py
+      
+      # NEW: Collect all experiment data with enhanced script
+      - name: 📦 Collect comprehensive experiment data
+        if: ${{ github.event.inputs.collect_data == 'true' }}
+        run: |
+          echo "Running enhanced data collection at $(date)" >> generation_metrics.txt
+          
+          # Run the enhanced data collection
+          poetry run python collect_experiment_data.py
+          
+          # List generated files
+          echo "Generated files:"
+          ls -la experiment_data_*/
+      
+      # Upload all artifacts
+      - name: 💾 Upload test generation artifacts
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: test-generation-artifacts
+          path: |
+            tests/**/test_*.py
+            coverage-*.json
+            coverage-final/*
+            coverage-terminal.txt
+            COVERAGE_SUMMARY.md
+            generation_metrics.txt
+            test-results.log
+            test-errors.log
+            refinement.log
+            test_generation.log
+            api_interaction_logs.json
+            !tests/**/__pycache__/**
+      
+      # Upload comprehensive data archive
+      - name: 💾 Upload experiment data archive
+        if: ${{ github.event.inputs.collect_data == 'true' }}
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: experiment-data-complete
+          path: experiment_data_complete_*.zip
+      
+      # Create detailed workflow summary
+      - name: 📝 Create detailed workflow summary
+        run: |
+          echo "# Test Generation Experiment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Add timestamp and metadata
+          echo "**Run Time**: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository**: ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Run ID**: ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Run Number**: ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Coverage summary
+          if [ -f "COVERAGE_SUMMARY.md" ]; then
+            cat COVERAGE_SUMMARY.md >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Test Generation Statistics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Count tests and metrics
+          if [ -d "tests" ]; then
+            TEST_FILES=$(find tests -name "test_*.py" | wc -l)
+            TEST_FUNCTIONS=$(find tests -name "test_*.py" -exec grep -c "def test_" {} \; | awk '{sum+=$1} END {print sum}')
+            ASYNC_TESTS=$(find tests -name "test_*.py" -exec grep -c "async def test_" {} \; | awk '{sum+=$1} END {print sum}')
+            ASSERTIONS=$(find tests -name "test_*.py" -exec grep -c "assert" {} \; | awk '{sum+=$1} END {print sum}')
+            
+            echo "- Test Files: $TEST_FILES" >> $GITHUB_STEP_SUMMARY
+            echo "- Test Functions: $TEST_FUNCTIONS" >> $GITHUB_STEP_SUMMARY
+            echo "- Async Tests: $ASYNC_TESTS" >> $GITHUB_STEP_SUMMARY
+            echo "- Total Assertions: $ASSERTIONS" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Performance metrics
+          if [ -f "generation_metrics.txt" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## Performance Metrics" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -5 generation_metrics.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- Complete test generation artifacts available in workflow artifacts" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "experiment_data_complete_*.zip" ]; then
+            echo "- Comprehensive experiment data archive created and uploaded" >> $GITHUB_STEP_SUMMARY
+          fi
+      
+      # Create Pull Request with detailed information
+      - name: 🔄 Create Pull Request
+        if: success()
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "✅ Add AI-generated tests with comprehensive metrics"
+          title: "✅ AI-Generated Tests - Coverage Improvement [Run #${{ github.run_number }}]"
+          body: |
+            ## AI-Generated Test Coverage Improvement
+            
+            This PR adds AI-generated tests with comprehensive metrics and data collection.
+            
+            ### Summary
+            $(cat COVERAGE_SUMMARY.md)
+            
+            ### Generated Files
+            - Test files are in the `/tests` directory
+            - Coverage reports are in the artifacts
+            - Complete experiment data archive is available
+            
+            ### Metrics
+            - Run ID: `${{ github.run_id }}`
+            - Run Number: `${{ github.run_number }}`
+            - Coverage Threshold: `${{ github.event.inputs.coverage_threshold }}%`
+            
+            ### Review Notes
+            - Tests were generated and validated automatically
+            - Some tests may need manual adjustment
+            - Full experiment data is available in the workflow artifacts
+            
+            Workflow Run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          branch: ai-generated-tests-${{ github.run_id }}
+          labels: automated, tests, enhancement, ai-generated

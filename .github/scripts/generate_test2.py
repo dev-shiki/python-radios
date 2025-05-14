@@ -3,6 +3,7 @@
 AI-powered test generator that works with any Python project structure.
 """
 
+import time
 import json
 import os
 import sys
@@ -28,6 +29,8 @@ class UniversalTestGenerator:
         self.openai_client = self._setup_openai()
         self.module_name = ""
         self.test_file_path = None
+        self.api_logs = []
+        self.start_time = time.time()
     
     def _setup_openai(self):
         """Configure OpenAI client for various providers."""
@@ -90,6 +93,7 @@ class UniversalTestGenerator:
         Returns:
             Generated test code
         """
+        generation_start = time.time()
         # Set module name and test file path
         self.module_name = self._get_module_name(file_path)
         self.test_file_path = self._get_test_path(file_path)
@@ -107,6 +111,14 @@ class UniversalTestGenerator:
         
         # Generate tests
         try:
+            # Log API request
+            request_log = {
+                "timestamp": time.time(),
+                "file": str(file_path),
+                "prompt_length": len(prompt),
+                "model": self.model
+            }
+            
             response = self.openai_client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -116,14 +128,46 @@ class UniversalTestGenerator:
                 temperature=0.1
             )
             
-            # Get the response content
             generated_code = response.choices[0].message.content
-            
-            # Clean up the code (remove markdown formatting, etc.)
             clean_code = self._clean_generated_code(generated_code)
             
+            # Log API response
+            response_log = {
+                **request_log,
+                "response_length": len(generated_code),
+                "clean_code_length": len(clean_code),
+                "generation_time": time.time() - generation_start,
+                "success": True
+            }
+            
+            # Add token usage if available
+            if hasattr(response, 'usage'):
+                response_log["token_usage"] = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens
+                }
+            
+            # Save to file
+            with open('api_interaction_logs.json', 'a') as f:
+                json.dump(response_log, f)
+                f.write('\n')
+            
             return clean_code
+            
         except Exception as e:
+            # Log error
+            error_log = {
+                **request_log,
+                "error": str(e),
+                "generation_time": time.time() - generation_start,
+                "success": False
+            }
+            
+            with open('api_interaction_logs.json', 'a') as f:
+                json.dump(error_log, f)
+                f.write('\n')
+            
             print(f"Error generating tests for {file_path}: {e}")
             return ""
     

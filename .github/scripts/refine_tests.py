@@ -3,6 +3,8 @@
 AI-powered test refiner that improves tests based on raw test failure output.
 """
 
+import json
+import time
 import os
 import subprocess
 import sys
@@ -18,6 +20,12 @@ class TestRefiner:
         """Initialize the refiner."""
         self.api_key = api_key
         self.openai_client = self._setup_openai()
+        self.refinement_log = {
+            "start_time": time.time(),
+            "refinements": [],
+            "total_attempts": 0,
+            "successful_refinements": 0
+        }
     
     def _setup_openai(self):
         """Configure OpenAI client."""
@@ -147,6 +155,7 @@ The fixed code should pass when executed with pytest.
         Returns:
             Refined test code
         """
+        refinement_start = time.time()
         # Read current test code
         try:
             with open(test_file, 'r', encoding='utf-8') as f:
@@ -158,11 +167,16 @@ The fixed code should pass when executed with pytest.
         # Create refinement prompt
         prompt = self.create_refinement_prompt(test_file, current_code, test_output)
         
+        refinement_record = {
+            "file": str(test_file),
+            "timestamp": refinement_start,
+            "test_failures": len(re.findall(r'FAILED', test_output)),
+            "prompt_length": len(prompt)
+        }
         # Generate refined tests
         try:
-            print(f"Generating refinements for {test_file}...")
             response = self.openai_client.chat.completions.create(
-                model="anthropic/claude-3.7-sonnet",  # High-quality model for test fixing
+                model="anthropic/claude-3.7-sonnet",
                 messages=[
                     {"role": "system", "content": self._get_system_prompt()},
                     {"role": "user", "content": prompt}
@@ -172,15 +186,42 @@ The fixed code should pass when executed with pytest.
             
             refined_code = response.choices[0].message.content
             
-            # Extract code block if present
-            if "```python" in refined_code and "```" in refined_code:
-                refined_code = refined_code.split("```python")[1].split("```")[0].strip()
+            # Update refinement record
+            refinement_record.update({
+                "success": True,
+                "response_length": len(refined_code),
+                "refinement_time": time.time() - refinement_start
+            })
             
-            return refined_code
+            # Add token usage if available
+            if hasattr(response, 'usage'):
+                refinement_record["token_usage"] = {
+                    "total_tokens": response.usage.total_tokens
+                }
+            
+            self.refinement_log["successful_refinements"] += 1
+            
         except Exception as e:
-            print(f"Error refining tests: {e}")
-            return ""
+            refinement_record.update({
+                "success": False,
+                "error": str(e),
+                "refinement_time": time.time() - refinement_start
+            })
+            refined_code = ""
+        
+        self.refinement_log["refinements"].append(refinement_record)
+        self.refinement_log["total_attempts"] += 1
+        
+        return refined_code
     
+    def save_refinement_log(self):
+        """Save refinement log to file"""
+        self.refinement_log["end_time"] = time.time()
+        self.refinement_log["total_time"] = self.refinement_log["end_time"] - self.refinement_log["start_time"]
+        
+        with open('refinement_log.json', 'w') as f:
+            json.dump(self.refinement_log, f, indent=2)
+
     def _get_system_prompt(self) -> str:
         """Get system prompt for test refinement."""
         return """You are an expert Python test engineer who specializes in fixing failing pytest tests. Your task is to analyze test failure outputs and produce corrected test code that passes successfully. You understand common testing patterns, mocking techniques, and framework-specific behaviors.
@@ -256,6 +297,8 @@ def main():
         if refined_code:
             refiner.save_refined_test(test_file, refined_code)
     
+    refiner.save_refinement_log()
+
     print("\nTest refinement complete! Run tests again to verify fixes.")
 
 
