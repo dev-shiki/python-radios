@@ -236,32 +236,39 @@ jobs:
 
       - name: 📋 Create Pull Request
         if: env.has_changes == 'true'
-        uses: peter-evans/create-pull-request@v5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          title: "Refined Tests and Updated Coverage [${{ github.event.inputs.run_id }}]"
-          body: |
-            This PR contains refined tests and updated coverage data.
-            
-            ## Changes
-            ${{ env.has_tests == 'true' && '- Updated test files' || '' }}
-            ${{ env.has_coverage == 'true' && '- Updated coverage data' || '' }}
-            
-            ## Notes
-            - Created from workflow run: ${{ github.event.inputs.run_id }}
-            - Target branch: main
-            - Branch name: ${{ env.BRANCH_NAME }}
-          branch: ${{ env.BRANCH_NAME }}
-          base: main
-          labels: |
-            tests
-            coverage
-            refinement
-          delete-branch: false
-          commit-message: "Refined tests and updated coverage data"
-          push-to-fork: ''
-          draft: false
-          create-pull-request: true
-          add-paths: |
-            tests/
-            coverage-final/
+        run: |
+          set -euo pipefail
+          
+          # Install GitHub CLI
+          type -p curl >/dev/null || (sudo apt update && sudo apt install curl -y)
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+          && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+          && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+          && sudo apt update \
+          && sudo apt install gh -y
+          
+          # Login to GitHub
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+          
+          # Create PR
+          PR_TITLE="Refined Tests and Updated Coverage [${{ github.event.inputs.run_id }}]"
+          PR_BODY="This PR contains refined tests and updated coverage data.
+          
+          ## Changes
+          ${{ env.has_tests == 'true' && '- Updated test files' || '' }}
+          ${{ env.has_coverage == 'true' && '- Updated coverage data' || '' }}
+          
+          ## Notes
+          - Created from workflow run: ${{ github.event.inputs.run_id }}
+          - Target branch: main
+          - Branch name: ${{ env.BRANCH_NAME }}"
+          
+          # Create PR with labels
+          gh pr create \
+            --title "$PR_TITLE" \
+            --body "$PR_BODY" \
+            --base main \
+            --head "${{ env.BRANCH_NAME }}" \
+            --label "tests,coverage,refinement"
+          
+          echo "✅ Pull request created"
