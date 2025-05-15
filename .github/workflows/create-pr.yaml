@@ -10,6 +10,10 @@ on:
         description: 'Branch to create PR against'
         required: true
         default: 'main'
+        type: choice
+        options:
+          - main
+          - develop
 
 jobs:
   create-pr:
@@ -20,7 +24,7 @@ jobs:
       - name: ⤵️ Check out code from GitHub
         uses: actions/checkout@v4.2.2
         with:
-          ref: ${{ github.event.inputs.target_branch }}
+          ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
@@ -227,6 +231,15 @@ jobs:
         run: |
           set -euo pipefail
           
+          # Verify changes exist
+          if ! git diff --quiet origin/${{ github.event.inputs.target_branch }}...HEAD; then
+            echo "Changes detected between branches"
+          else
+            echo "::warning::No changes detected between branches"
+            echo "has_changes=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
           # Retry push up to 3 times
           for i in {1..3}; do
             if git push origin "$BRANCH_NAME"; then
@@ -255,11 +268,14 @@ jobs:
             
             ## Notes
             - Created from workflow run: ${{ github.event.inputs.run_id }}
-            - Target branch: ${{ github.event.inputs.target_branch }}
+            - Target branch: main
+            - Branch name: ${{ env.BRANCH_NAME }}
           branch: ${{ env.BRANCH_NAME }}
-          base: ${{ github.event.inputs.target_branch }}
+          base: main
           labels: |
             tests
             coverage
             refinement
-          delete-branch: false 
+          delete-branch: false
+          commit-message: "Refined tests and updated coverage data"
+          title: "Refined Tests and Updated Coverage [${{ github.event.inputs.run_id }}]" 
