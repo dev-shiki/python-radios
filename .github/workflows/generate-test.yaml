@@ -2,8 +2,6 @@ name: Generate Tests
 
 on:
   push:
-    branches:
-      - 'revert-2-ai-generated-tests-14921708095'  # Hanya trigger pada branch ini
   workflow_dispatch:
     inputs:
       coverage_threshold:

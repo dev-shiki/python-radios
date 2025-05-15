@@ -10,7 +10,7 @@ on:
       target_branch:
         description: 'Branch to refine tests from'
         required: true
-        default: 'revert-2-ai-generated-tests-14921708095'
+        default: 'main'
       run_id:
         description: 'Run ID of the generate test workflow'
         required: true
