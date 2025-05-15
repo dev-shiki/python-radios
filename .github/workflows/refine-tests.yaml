@@ -263,21 +263,19 @@ jobs:
             exit 1
           fi
           
-          # Get initial failures from test-results.log if it exists
-          if [ -f "test-results.log" ]; then
-            INITIAL_FAILURES=$(grep -c "FAILED" test-results.log 2>/dev/null || echo "0")
-            INITIAL_FAILURES=$(echo "$INITIAL_FAILURES" | tr -d '\n' | sed 's/^0*//' | xargs)
-            INITIAL_FAILURES="${INITIAL_FAILURES:-0}"
-          else
-            # If test-results.log doesn't exist, try to get from generation_metrics.txt
-            if [ -f "generation_metrics.txt" ]; then
-              INITIAL_FAILURES=$(grep "Initial Failures:" generation_metrics.txt | grep -o '[0-9]*' || echo "0")
-              INITIAL_FAILURES="${INITIAL_FAILURES:-0}"
-            else
-              echo "::warning::Could not find initial failure count, assuming 0"
-              INITIAL_FAILURES=0
-            fi
-          fi
+          # Run initial test to get failure count
+          echo "Running initial test to get failure count..."
+          poetry run pytest tests/ \
+            -v \
+            --tb=short \
+            --cov="${SRC_DIR}" \
+            --cov-report="json:coverage-final/${COVERAGE_FINAL}" \
+            2>&1 | tee "test-results-initial.log" || true
+          
+          # Count initial failures
+          INITIAL_FAILURES=$(grep -c "FAILED" "test-results-initial.log" 2>/dev/null || echo "0")
+          INITIAL_FAILURES=$(echo "$INITIAL_FAILURES" | tr -d '\n' | sed 's/^0*//' | xargs)
+          INITIAL_FAILURES="${INITIAL_FAILURES:-0}"
           
           MAX_ATTEMPTS=${{ env.VALIDATED_MAX_ATTEMPTS }}
           CURRENT_FAILURES="$INITIAL_FAILURES"
