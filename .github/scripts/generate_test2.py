@@ -22,7 +22,7 @@ class UniversalTestGenerator:
     def __init__(self, 
                  api_key: str,
                  coverage_threshold: float = 80.0,
-                 model: str = "anthropic/claude-3.7-sonnet"):
+                 model: str = "google/gemini-2.0-flash-001"):
         """Initialize with minimal configuration."""
         self.api_key = api_key
         self.coverage_threshold = coverage_threshold
@@ -803,11 +803,6 @@ REQUIREMENTS:
    - Test exception cases with pytest.raises contextmanager
    - Group related tests in classes when appropriate
 
-NOTE : FAILED INJECTION FOR REFINEMENT :
-   - Create exactly ONLY ONE test with a deliberate minor FAILED
-   - This FAILED should be easily fixable but cause the test to fail
-   - The FAILED should be in a non-critical test to allow other tests to pass
-
 Return only runnable pytest code with no explanations or markdown. The code must be immediately usable without any modifications.
 """
         return prompt
@@ -882,7 +877,7 @@ def main():
         sys.exit(1)
     
     # Get optional model
-    model = os.getenv("OPENAI_MODEL", "anthropic/claude-3.7-sonnet")
+    model = os.getenv("OPENAI_MODEL", "google/gemini-2.0-flash-001")
     
     coverage_threshold = float(os.getenv("COVERAGE_THRESHOLD", "80"))
     

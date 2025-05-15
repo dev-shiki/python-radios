@@ -177,7 +177,7 @@ The fixed code should pass when executed with pytest.
         # Generate refined tests
         try:
             response = self.openai_client.chat.completions.create(
-                model="anthropic/claude-3.7-sonnet",
+                model="google/gemini-2.0-flash-001",
                 messages=[
                     {"role": "system", "content": self._get_system_prompt()},
                     {"role": "user", "content": prompt}
