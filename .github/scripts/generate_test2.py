@@ -759,8 +759,8 @@ REQUIREMENTS:
    - Create valid test data that meets all model constraints
 
 3. MODEL VERIFICATION:
-   - Before creating model instances, verify each field name exists in the actual model definition
-   - Check field names exactly as they appear in model signatures (case-sensitive)
+   - Before creating model instances, VERIFY each field name exists in the actual model definition
+   - CHECK field names exactly as they appear in model signatures (case-sensitive)
    - Ensure all required fields are provided and no extra/invalid fields are included
    - Use IDE-like validation - "if it's not in the model definition, don't use it"
    - For model classes with similar names (e.g., Station vs StationInfo), verify you're using the correct class
