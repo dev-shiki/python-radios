@@ -778,7 +778,7 @@ REQUIREMENTS:
    - Import Mock/AsyncMock directly from unittest.mock
    - Set return_value before using the mock
    - For side_effects that raise exceptions, use side_effect=Exception()
-   - When asserting calls, VERIFY the code actually reaches the call point
+   - When asserting calls, PLEASE VERIFY the code actually reaches the call point
    - Mock external dependencies completely to isolate units under test
 
 5. URL AND HTTP TESTING:
