@@ -1,4 +1,4 @@
-name: Auto Generate Tests with Complete Data Coll
+name: Auto Generate Tests with Complete Data Collection
 
 on:
   push:
@@ -57,10 +57,15 @@ jobs:
           fi
           echo "✅ API key found"
           
-          # Get input parameters
+          # Get input parameters with defaults
           THRESHOLD="${{ github.event.inputs.coverage_threshold }}"
           MAX_MODULES="${{ github.event.inputs.max_modules }}"
           MAX_ATTEMPTS="${{ github.event.inputs.max_refinement_attempts }}"
+          
+          # Default values if empty
+          THRESHOLD="${THRESHOLD:-80}"
+          MAX_MODULES="${MAX_MODULES:-5}"
+          MAX_ATTEMPTS="${MAX_ATTEMPTS:-2}"
           
           # Debug raw inputs
           echo "Debug - Raw inputs:"
@@ -73,10 +78,10 @@ jobs:
           MAX_MODULES=$(echo "$MAX_MODULES" | sed 's/[^0-9]//g')
           MAX_ATTEMPTS=$(echo "$MAX_ATTEMPTS" | sed 's/[^0-9]//g')
           
-          # Set defaults if empty
-          THRESHOLD=${THRESHOLD:-80}
-          MAX_MODULES=${MAX_MODULES:-5}
-          MAX_ATTEMPTS=${MAX_ATTEMPTS:-2}
+          # Set defaults if empty after cleaning
+          THRESHOLD="${THRESHOLD:-80}"
+          MAX_MODULES="${MAX_MODULES:-5}"
+          MAX_ATTEMPTS="${MAX_ATTEMPTS:-2}"
           
           echo "Debug - Cleaned inputs:"
           echo "  coverage_threshold: '$THRESHOLD'"
@@ -197,19 +202,19 @@ jobs:
           fi
           echo "SRC_DIR=$SRC_DIR" >> $GITHUB_ENV
           
-          # Generate coverage
+          # Generate coverage with better error handling
           poetry run pytest \
             --cov="$SRC_DIR" \
             --cov-report="json:${COVERAGE_INITIAL}" \
             --quiet \
-            || true
+            2>/dev/null || true
           
           # Ensure valid coverage file
           if [ ! -f "$COVERAGE_INITIAL" ] || [ ! -s "$COVERAGE_INITIAL" ]; then
             echo '{"totals": {"percent_covered": 0}, "files": {}}' > "$COVERAGE_INITIAL"
           fi
           
-          # Extract coverage
+          # Extract coverage safely
           INITIAL_COV=$(jq -r '.totals.percent_covered // 0' "$COVERAGE_INITIAL")
           echo "initial_coverage=$INITIAL_COV" >> $GITHUB_OUTPUT
           echo "✅ Initial coverage: ${INITIAL_COV}%" | tee -a generation_metrics.txt
@@ -304,8 +309,8 @@ jobs:
           done
           
           # Read final counts
-          SUCCESS=$(cat "${TEMP_DIR}/success_count")
-          FAILED=$(cat "${TEMP_DIR}/failed_count")
+          SUCCESS=$(cat "${TEMP_DIR}/success_count" 2>/dev/null || echo "0")
+          FAILED=$(cat "${TEMP_DIR}/failed_count" 2>/dev/null || echo "0")
           DURATION=$(($(date +%s) - START_TIME))
           
           echo "Generation Summary:" | tee -a generation_metrics.txt
@@ -360,15 +365,15 @@ jobs:
             --cov="${SRC_DIR}" \
             --cov-report="html:coverage-final/" \
             --cov-report="json:coverage-final/${COVERAGE_FINAL}" \
-            --quiet || true
+            --quiet 2>/dev/null || true
           
-          # Analyze results
+          # Analyze results with safe grep
           if [ "$TEST_EXIT_CODE" -ne 0 ]; then
-            FAILURE_COUNT=$(grep -c "FAILED" test-results.log || echo "0")
+            FAILURE_COUNT=$(grep -c "FAILED" test-results.log 2>/dev/null || echo "0")
             echo "⚠️ $FAILURE_COUNT test failures" | tee -a generation_metrics.txt
             
             # Extract error details
-            grep -A 5 "FAILED\|ERROR" test-results.log > test-errors.log || true
+            grep -A 5 "FAILED\|ERROR" test-results.log > test-errors.log 2>/dev/null || true
             
             echo "status=has_failures" >> $GITHUB_OUTPUT
             echo "failure_count=$FAILURE_COUNT" >> $GITHUB_OUTPUT
@@ -378,7 +383,7 @@ jobs:
             echo "failure_count=0" >> $GITHUB_OUTPUT
           fi
       
-      # Step 5: Refine with retry
+      # Step 5: Refine with retry (FIXED)
       - name: 🔄 Refine failing tests
         id: refine
         if: steps.test-run.outputs.status == 'has_failures'
@@ -393,13 +398,14 @@ jobs:
           fi
           
           MAX_ATTEMPTS=${{ env.VALIDATED_MAX_ATTEMPTS }}
-          INITIAL_FAILURES=${{ steps.test-run.outputs.failure_count }}
-          CURRENT_FAILURES=$INITIAL_FAILURES
+          INITIAL_FAILURES="${{ steps.test-run.outputs.failure_count }}"
+          CURRENT_FAILURES="$INITIAL_FAILURES"
           
           echo "🔄 Starting refinement (max $MAX_ATTEMPTS attempts)" | tee -a generation_metrics.txt
           echo "Initial failures: $INITIAL_FAILURES" | tee -a generation_metrics.txt
           
           for ATTEMPT in $(seq 1 "$MAX_ATTEMPTS"); do
+            # Early exit if no failures remain
             if [ "$CURRENT_FAILURES" -eq 0 ]; then
               break
             fi
@@ -427,10 +433,18 @@ jobs:
               --cov-report="json:coverage-final/${COVERAGE_FINAL}" \
               2>&1 | tee "test-results-attempt-${ATTEMPT}.log" || true
             
-            # Count failures
-            PREVIOUS_FAILURES=$CURRENT_FAILURES
-            CURRENT_FAILURES=$(grep -c "FAILED" "test-results-attempt-${ATTEMPT}.log" || echo "0")
-            FIXED=$((PREVIOUS_FAILURES - CURRENT_FAILURES))
+            # Count failures safely
+            PREVIOUS_FAILURES="$CURRENT_FAILURES"
+            NEW_FAILURE_COUNT=$(grep -c "FAILED" "test-results-attempt-${ATTEMPT}.log" 2>/dev/null || echo "0")
+            CURRENT_FAILURES="$NEW_FAILURE_COUNT"
+            
+            # Calculate fixed safely using if-then
+            if [ "$PREVIOUS_FAILURES" -gt "$CURRENT_FAILURES" ]; then
+              FIXED=$((PREVIOUS_FAILURES - CURRENT_FAILURES))
+            else
+              FIXED=0
+            fi
+            
             DURATION=$(($(date +%s) - ATTEMPT_START))
             
             echo "Attempt $ATTEMPT results:" | tee -a generation_metrics.txt
@@ -438,20 +452,25 @@ jobs:
             echo "  Fixed: $FIXED" | tee -a generation_metrics.txt
             echo "  Remaining: $CURRENT_FAILURES" | tee -a generation_metrics.txt
             
-            # Update error log for next iteration
+            # Update error log for next iteration if needed
             if [ "$CURRENT_FAILURES" -gt 0 ] && [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then
-              grep -A 5 "FAILED\|ERROR" "test-results-attempt-${ATTEMPT}.log" > test-errors.log || true
+              grep -A 5 "FAILED\|ERROR" "test-results-attempt-${ATTEMPT}.log" > test-errors.log 2>/dev/null || true
             fi
           done
           
-          # Final summary
-          TOTAL_FIXED=$((INITIAL_FAILURES - CURRENT_FAILURES))
+          # Final summary with safe arithmetic
+          if [ "$INITIAL_FAILURES" -gt "$CURRENT_FAILURES" ]; then
+            TOTAL_FIXED=$((INITIAL_FAILURES - CURRENT_FAILURES))
+          else
+            TOTAL_FIXED=0
+          fi
+          
           echo "" | tee -a generation_metrics.txt
           echo "Refinement complete:" | tee -a generation_metrics.txt
           echo "  Total fixed: $TOTAL_FIXED" | tee -a generation_metrics.txt
           echo "  Remaining: $CURRENT_FAILURES" | tee -a generation_metrics.txt
           
-          # Set status
+          # Set status based on results
           if [ "$CURRENT_FAILURES" -eq 0 ]; then
             echo "status=all_fixed" >> $GITHUB_OUTPUT
           elif [ "$CURRENT_FAILURES" -lt "$INITIAL_FAILURES" ]; then
@@ -487,7 +506,13 @@ jobs:
                 echo "**Final**: ${FINAL}%" >> COVERAGE_SUMMARY.md
                 
                 if [ -n "${INITIAL:-}" ]; then
-                  DELTA=$(echo "scale=1; $FINAL - $INITIAL" | bc)
+                  # Use safe arithmetic
+                  if command -v bc >/dev/null 2>&1; then
+                    DELTA=$(echo "scale=1; $FINAL - $INITIAL" | bc)
+                  else
+                    # Fallback to integer math if bc not available
+                    DELTA=$((${FINAL%.*} - ${INITIAL%.*}))
+                  fi
                   echo "**Change**: ${DELTA}%" >> COVERAGE_SUMMARY.md
                 fi
               fi
@@ -505,7 +530,7 @@ jobs:
           # Try enhanced collector
           if [ -f ".github/scripts/enhanced_collect_experiment_data.py" ]; then
             poetry run python .github/scripts/enhanced_collect_experiment_data.py || {
-              echo "::warning::Enhanced collector failed"
+              echo "::warning::Enhanced collector failed, using fallback"
               
               # Simple fallback
               TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -514,10 +539,12 @@ jobs:
               
               # Copy all artifacts
               for pattern in tests "*.json" "*.log" "*.txt" "*.md" coverage-final; do
-                cp -r $pattern "$ARCHIVE_DIR/" 2>/dev/null || true
+                if ls $pattern >/dev/null 2>&1; then
+                  cp -r $pattern "$ARCHIVE_DIR/" 2>/dev/null || true
+                fi
               done
               
-              zip -r "${ARCHIVE_DIR}.zip" "$ARCHIVE_DIR/"
+              zip -r "${ARCHIVE_DIR}.zip" "$ARCHIVE_DIR" || true
             }
           fi
       
@@ -569,9 +596,8 @@ jobs:
         run: |
           # Remove temporary files
           rm -rf "${TEMP_DIR}" 2>/dev/null || true
-          rm -f .success_count .failed_count 2>/dev/null || true
           
-          # Remove placeholder test if no real tests exist
+          # Remove placeholder test if real tests exist
           if [ -f "tests/test_placeholder.py" ]; then
             REAL_TESTS=$(find tests -name "test_*.py" -not -name "test_placeholder.py" | wc -l)
             if [ "$REAL_TESTS" -gt 0 ]; then
