@@ -392,14 +392,14 @@ jobs:
           fi
 
       - name: 💾 Upload test files as artifact
-        uses: actions/upload-artifact@v4.1.4
+        uses: actions/upload-artifact@v4
         with:
           name: test-files-${{ github.run_id }}
           path: tests/
           if-no-files-found: error
 
       - name: 💾 Upload coverage files as artifact
-        uses: actions/upload-artifact@v4.1.4
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-files-${{ github.run_id }}
           path: |
