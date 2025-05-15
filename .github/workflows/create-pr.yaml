@@ -268,7 +268,7 @@ jobs:
         uses: peter-evans/create-pull-request@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          title: "Refined Tests and Updated Coverage"
+          title: "Refined Tests and Updated Coverage [${{ github.event.inputs.run_id }}]"
           body: |
             This PR contains refined tests and updated coverage data.
             
@@ -288,7 +288,6 @@ jobs:
             refinement
           delete-branch: false
           commit-message: "Refined tests and updated coverage data"
-          title: "Refined Tests and Updated Coverage [${{ github.event.inputs.run_id }}]"
           push-to-fork: ''
           draft: false
           draft-pull-request: false
