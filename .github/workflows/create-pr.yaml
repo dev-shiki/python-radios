@@ -231,8 +231,18 @@ jobs:
         run: |
           set -euo pipefail
           
+          # Configure git
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          
+          # Fetch main branch
+          git fetch origin main
+          
           # Verify changes exist
-          if ! git diff --quiet origin/${{ github.event.inputs.target_branch }}...HEAD; then
+          echo "Checking for changes between main and current branch..."
+          git diff --name-status origin/main...HEAD
+          
+          if [ -n "$(git diff --name-only origin/main...HEAD)" ]; then
             echo "Changes detected between branches"
           else
             echo "::warning::No changes detected between branches"
@@ -276,3 +286,9 @@ jobs:
             tests
             coverage
             refinement
+          delete-branch: false
+          commit-message: "Refined tests and updated coverage data"
+          title: "Refined Tests and Updated Coverage [${{ github.event.inputs.run_id }}]"
+          push-to-fork: ''
+          draft: false
+          draft-pull-request: false
