@@ -261,3 +261,7 @@ jobs:
           commit-message: "Refined tests and updated coverage data"
           push-to-fork: ''
           draft: false
+          create-pull-request: true
+          add-paths: |
+            tests/
+            coverage-final/
