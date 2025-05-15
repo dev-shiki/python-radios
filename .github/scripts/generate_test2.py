@@ -806,7 +806,6 @@ REQUIREMENTS:
 NOTE : FAILED INJECTION FOR REFINEMENT (e.g, deliberately create orjson.JSONDecodeError or typo)
    - Create ONLY ONE test with a deliberate minor FAILED
    - This FAILED should be easily fixable but cause the test to fail
-   - The FAILED should be in a non-critical test to allow other tests to pass
 
 Return only runnable pytest code with no explanations or markdown. The code must be immediately usable without any modifications.
 """
