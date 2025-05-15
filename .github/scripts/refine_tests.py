@@ -232,19 +232,24 @@ IMPORTANT GUIDELINES:
 1. Fix ALL errors shown in the output
 2. Maintain the original test structure and intent
 3. For AsyncMock issues:
-   - Ensure AsyncMock objects are properly configured to return awaitable values
-   - Use AsyncMock.return_value = AsyncMock() for nested async calls
-   - Set side_effect for async functions that need to raise exceptions
-4. For DNS error testing:
-   - Import aiodns.error.DNSError at the top of the test file
-   - Create a mock DNSResolver with AsyncMock
-   - Set the mock's query method to raise DNSError using side_effect
-5. Consider issues with:
-   - Mocking (correct return values and assertions)
-   - Data structures (field requirements, ordering)
-   - Asynchronous code (proper awaiting and async patterns)
-   - URL handling (string vs object comparisons)
-   - Type compatibility (expected vs actual types)
+   - Use AsyncMock() for all async methods that need to be mocked
+   - Set return_value to an awaitable value (e.g., AsyncMock() or a coroutine)
+   - For methods that return lists, use AsyncMock(return_value=[]) or AsyncMock(return_value=AsyncMock())
+   - For methods that return objects, use AsyncMock(return_value=AsyncMock())
+   - For methods that return None, use AsyncMock(return_value=None)
+   - For methods that raise exceptions, use AsyncMock(side_effect=Exception())
+4. For HTTP client mocking:
+   - Mock session.request to return a mock response object
+   - Mock response.text() to return appropriate response data
+   - Mock response.headers to return a dict with required headers
+   - Mock response.status to return an integer
+5. Common patterns to fix:
+   - Replace MagicMock with AsyncMock for async methods
+   - Ensure all awaited values are coroutines or AsyncMock instances
+   - Use proper return_value or side_effect for mocks
+   - Mock both the method and its return value if needed
+   - Handle async context managers properly
+   - Mock async iterators correctly
 6. Return ONLY the complete fixed test code with no explanations
 7. Make minimal changes necessary to fix the failing tests
 
