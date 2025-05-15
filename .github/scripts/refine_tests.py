@@ -47,7 +47,7 @@ class TestRefiner:
         Returns:
             Test output as string
         """
-        cmd = ["pytest", "-v"]
+        cmd = ["pytest", "-v", "-s", "--tb=short"]  # Added -s and --tb=short for better output
         if test_path:
             cmd.append(test_path)
         
@@ -83,6 +83,104 @@ class TestRefiner:
         
         return list(failing_files)
     
+    def extract_source_imports(self, test_code: str) -> list:
+        """
+        Extract imported modules from test code.
+        
+        Args:
+            test_code: Test file content
+            
+        Returns:
+            List of imported module paths
+        """
+        imports = []
+        
+        # Pattern for from X import Y
+        from_import_pattern = r'from\s+([a-zA-Z0-9_.]+)\s+import'
+        # Pattern for import X
+        import_pattern = r'^import\s+([a-zA-Z0-9_.]+)'
+        
+        for line in test_code.split('\n'):
+            from_match = re.match(from_import_pattern, line)
+            if from_match:
+                module = from_match.group(1)
+                if not module.startswith('.'):  # Skip relative imports
+                    imports.append(module)
+            
+            import_match = re.match(import_pattern, line)
+            if import_match:
+                module = import_match.group(1)
+                imports.append(module)
+        
+        return imports
+    
+    def get_source_file_content(self, module_path: str) -> str:
+        """
+        Get source file content for a module.
+        
+        Args:
+            module_path: Module path (e.g., 'radios.radio_browser')
+            
+        Returns:
+            Source file content or empty string
+        """
+        # Try different source locations
+        possible_paths = [
+            f"src/{module_path.replace('.', '/')}.py",
+            f"{module_path.replace('.', '/')}.py",
+            f"lib/{module_path.replace('.', '/')}.py"
+        ]
+        
+        for path in possible_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        return f"# Source: {path}\n{f.read()}"
+                except Exception as e:
+                    print(f"Error reading {path}: {e}")
+        
+        return ""
+    
+    def extract_full_stack_trace(self, test_output: str, test_file_name: str) -> str:
+        """
+        Extract full stack trace for a specific test file.
+        
+        Args:
+            test_output: Full test output
+            test_file_name: Name of the test file
+            
+        Returns:
+            Full stack trace including all context
+        """
+        lines = test_output.split('\n')
+        relevant_lines = []
+        capture = False
+        stack_trace_started = False
+        
+        for i, line in enumerate(lines):
+            # Start capturing on test failure
+            if test_file_name in line and "FAILED" in line:
+                capture = True
+                relevant_lines.append(line)
+                continue
+            
+            if capture:
+                # Include all lines until next test or separator
+                if line.startswith("=") and len(line) > 20:
+                    if stack_trace_started:
+                        capture = False
+                else:
+                    relevant_lines.append(line)
+                    if not stack_trace_started and (
+                        "Traceback" in line or 
+                        ".py:" in line or 
+                        "E   " in line or
+                        ">" in line
+                    ):
+                        stack_trace_started = True
+        
+        return "\n".join(relevant_lines)
+    
     def create_refinement_prompt(self, test_file: Path, current_code: str, test_output: str) -> str:
         """
         Create prompt for test refinement using raw test output.
@@ -95,24 +193,21 @@ class TestRefiner:
         Returns:
             Prompt for test refinement
         """
-        # Filter test output to only include failures for this specific test file
+        # Get full stack trace with context
         file_name = test_file.name
-        relevant_failures = []
-        capture = False
+        full_stack_trace = self.extract_full_stack_trace(test_output, file_name)
         
-        for line in test_output.split('\n'):
-            # Start capturing on failures for this file
-            if file_name in line and "FAILED" in line:
-                capture = True
-                relevant_failures.append(line)
-            # Continue capturing until next test or end of failures
-            elif capture and line.strip() and not line.startswith("="):
-                relevant_failures.append(line)
-            # Stop capturing at test separator
-            elif capture and line.startswith("="):
-                capture = False
+        # Extract source files being tested
+        imported_modules = self.extract_source_imports(current_code)
+        source_contents = []
         
-        filtered_output = "\n".join(relevant_failures)
+        for module in imported_modules:
+            content = self.get_source_file_content(module)
+            if content:
+                source_contents.append(content)
+        
+        # Combine source contents
+        source_context = "\n\n".join(source_contents) if source_contents else "# No source files found"
         
         prompt = f"""Fix the failing Python test based on the error output below.
 
@@ -125,7 +220,12 @@ CURRENT TEST CODE:
 
 TEST FAILURE OUTPUT:
 ```
-{filtered_output}
+{full_stack_trace}
+```
+
+SOURCE CODE CONTEXT:
+```python
+{source_context}
 ```
 
 IMPORTANT GUIDELINES:
