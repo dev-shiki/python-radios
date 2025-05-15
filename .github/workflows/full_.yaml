@@ -1,7 +1,6 @@
-name: Auto Generate Tests with Complete Data Collection
+name: Auto Generate Tests with Complete Data Coll
 
 on:
-  push:
   workflow_dispatch:
     inputs:
       coverage_threshold:

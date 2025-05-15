@@ -803,7 +803,7 @@ REQUIREMENTS:
    - Test exception cases with pytest.raises contextmanager
    - Group related tests in classes when appropriate
 
-NOTE : FAILED INJECTION FOR REFINEMENT :
+NOTE : FAILED INJECTION FOR REFINEMENT 
    - Create exactly ONLY ONE test with a deliberate minor FAILED
    - This FAILED should be easily fixable but cause the test to fail
    - The FAILED should be in a non-critical test to allow other tests to pass
