@@ -111,6 +111,9 @@ jobs:
             exit 0
           fi
           
+          # Create coverage directory
+          mkdir -p coverage-final/
+          
           # Extract to current directory
           unzip -o coverage.zip
           if [ $? -ne 0 ]; then
@@ -120,12 +123,23 @@ jobs:
           fi
           rm coverage.zip
           
+          # Move coverage files to coverage-final directory
+          if [ -f "coverage-initial.json" ]; then
+            mv coverage-initial.json coverage-final/
+            echo "✅ Moved coverage-initial.json"
+          fi
+          if [ -f "coverage-after-generation.json" ]; then
+            mv coverage-after-generation.json coverage-final/
+            echo "✅ Moved coverage-after-generation.json"
+          fi
+          
           # Verify coverage files
-          if [ ! -f "coverage-final.json" ]; then
+          if [ ! -f "coverage-final/coverage-final.json" ] && [ ! -f "coverage-final/coverage-initial.json" ] && [ ! -f "coverage-final/coverage-after-generation.json" ]; then
             echo "::warning::No coverage files found in artifact"
             echo "has_coverage=false" >> $GITHUB_ENV
           else
             echo "has_coverage=true" >> $GITHUB_ENV
+            echo "✅ Coverage files ready"
           fi
 
       - name: 🔄 Create new branch
@@ -167,9 +181,9 @@ jobs:
             echo "📊 Adding coverage files..."
             if [ -d "coverage-final" ] && [ -n "$(ls -A coverage-final/ 2>/dev/null)" ]; then
               git add coverage-final/
-            fi
-            if [ -f "coverage-final.json" ]; then
-              git add coverage-final.json
+              echo "✅ Coverage files added"
+            else
+              echo "ℹ️ No coverage files to add"
             fi
           fi
           
@@ -190,6 +204,15 @@ jobs:
           
           if [ "${{ env.has_coverage }}" = "true" ]; then
             COMMIT_MSG="${COMMIT_MSG}- Updated coverage data\n"
+            # Add coverage details to commit message
+            if [ -f "coverage-final/coverage-final.json" ]; then
+              COVERAGE=$(jq -r '.totals.percent_covered // 0' "coverage-final/coverage-final.json")
+              COMMIT_MSG="${COMMIT_MSG}- Final Coverage: ${COVERAGE}%\n"
+            fi
+            if [ -f "coverage-final/coverage-initial.json" ]; then
+              INITIAL_COVERAGE=$(jq -r '.totals.percent_covered // 0' "coverage-final/coverage-initial.json")
+              COMMIT_MSG="${COMMIT_MSG}- Initial Coverage: ${INITIAL_COVERAGE}%\n"
+            fi
           fi
           
           # Commit changes
