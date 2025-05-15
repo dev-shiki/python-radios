@@ -815,10 +815,6 @@ REQUIREMENTS:
    - Test exception cases with pytest.raises contextmanager
    - Group related tests in classes when appropriate
 
-NOTE : DO FAILED INJECTION FOR REFINEMENT (e.g, deliberately create orjson.JSONDecodeError or typo)
-   - Create ONLY ONE test with a deliberate minor FAILED
-   - This FAILED should be easily fixable but cause the test to fail
-
 Return only runnable pytest code with no explanations or markdown. The code must be immediately usable without any modifications.
 """
         return prompt
