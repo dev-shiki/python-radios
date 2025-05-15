@@ -41,34 +41,58 @@ jobs:
           rm -rf coverage-final/
           mkdir -p coverage-final/
 
-      - name: 💾 Download test files from artifact URL
+      - name: 💾 Download test files from artifact
         run: |
-          # Get artifact URL
-          ARTIFACT_URL="https://github.com/dev-shiki/python-radios/actions/runs/${{ github.event.inputs.run_id }}/artifacts/3131841703"
-          echo "Downloading from: $ARTIFACT_URL"
+          # Get artifact download URL using GitHub API
+          echo "Getting artifact download URL..."
+          ARTIFACT_NAME="test-files-${{ github.event.inputs.run_id }}"
+          DOWNLOAD_URL=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.inputs.run_id }}/artifacts" \
+            | jq -r ".artifacts[] | select(.name==\"$ARTIFACT_NAME\") | .archive_download_url")
+          
+          if [ -z "$DOWNLOAD_URL" ]; then
+            echo "::error::Could not find artifact: $ARTIFACT_NAME"
+            exit 1
+          fi
+          
+          echo "Downloading from: $DOWNLOAD_URL"
           
           # Download using curl with GitHub token
           curl -L \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
-            "$ARTIFACT_URL" \
+            "$DOWNLOAD_URL" \
             -o artifact.zip
           
           # Extract to tests directory
           unzip -o artifact.zip -d tests/
           rm artifact.zip
 
-      - name: 💾 Download coverage files from artifact URL
+      - name: 💾 Download coverage files from artifact
         run: |
-          # Get coverage artifact URL
-          COVERAGE_URL="https://github.com/dev-shiki/python-radios/actions/runs/${{ github.event.inputs.run_id }}/artifacts/3131841704"
-          echo "Downloading coverage from: $COVERAGE_URL"
+          # Get artifact download URL using GitHub API
+          echo "Getting coverage artifact download URL..."
+          ARTIFACT_NAME="coverage-files-${{ github.event.inputs.run_id }}"
+          DOWNLOAD_URL=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.inputs.run_id }}/artifacts" \
+            | jq -r ".artifacts[] | select(.name==\"$ARTIFACT_NAME\") | .archive_download_url")
+          
+          if [ -z "$DOWNLOAD_URL" ]; then
+            echo "::error::Could not find artifact: $ARTIFACT_NAME"
+            exit 1
+          fi
+          
+          echo "Downloading from: $DOWNLOAD_URL"
           
           # Download using curl with GitHub token
           curl -L \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
-            "$COVERAGE_URL" \
+            "$DOWNLOAD_URL" \
             -o coverage.zip
           
           # Extract to current directory
