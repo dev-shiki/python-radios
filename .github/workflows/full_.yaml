@@ -1,4 +1,4 @@
-name: Auto Generate Tests with Complete Data 
+name: Auto Generate Tests with Complete Data Collection
 
 on:
   push:
@@ -15,7 +15,7 @@ on:
       max_refinement_attempts:
         description: 'Maximum refinement attempts for failing tests'
         required: false
-        default: '1'
+        default: '3'
 
 env:
   DEFAULT_PYTHON: "3.11"
@@ -57,25 +57,59 @@ jobs:
           fi
           echo "✅ API key found"
           
-          # Validate input parameters
-          THRESHOLD=${{ github.event.inputs.coverage_threshold }}
-          MAX_MODULES=${{ github.event.inputs.max_modules }}
-          MAX_ATTEMPTS=${{ github.event.inputs.max_refinement_attempts }}
+          # Get input parameters
+          THRESHOLD="${{ github.event.inputs.coverage_threshold }}"
+          MAX_MODULES="${{ github.event.inputs.max_modules }}"
+          MAX_ATTEMPTS="${{ github.event.inputs.max_refinement_attempts }}"
           
-          if ! [[ "$THRESHOLD" =~ ^[0-9]+$ ]] || [ "$THRESHOLD" -lt 0 ] || [ "$THRESHOLD" -gt 100 ]; then
-            echo "::error::Invalid coverage_threshold: must be 0-100"
+          # Debug raw inputs
+          echo "Debug - Raw inputs:"
+          echo "  coverage_threshold: '$THRESHOLD'"
+          echo "  max_modules: '$MAX_MODULES'"
+          echo "  max_refinement_attempts: '$MAX_ATTEMPTS'"
+          
+          # Clean inputs - remove all non-numeric characters
+          THRESHOLD=$(echo "$THRESHOLD" | sed 's/[^0-9]//g')
+          MAX_MODULES=$(echo "$MAX_MODULES" | sed 's/[^0-9]//g')
+          MAX_ATTEMPTS=$(echo "$MAX_ATTEMPTS" | sed 's/[^0-9]//g')
+          
+          # Set defaults if empty
+          THRESHOLD=${THRESHOLD:-80}
+          MAX_MODULES=${MAX_MODULES:-5}
+          MAX_ATTEMPTS=${MAX_ATTEMPTS:-3}
+          
+          echo "Debug - Cleaned inputs:"
+          echo "  coverage_threshold: '$THRESHOLD'"
+          echo "  max_modules: '$MAX_MODULES'"
+          echo "  max_refinement_attempts: '$MAX_ATTEMPTS'"
+          
+          # Validate coverage threshold (0-100)
+          if [ "$THRESHOLD" -lt 0 ] 2>/dev/null || [ "$THRESHOLD" -gt 100 ] 2>/dev/null; then
+            echo "::error::Invalid coverage_threshold: must be 0-100 (got $THRESHOLD)"
             exit 1
           fi
           
-          if ! [[ "$MAX_MODULES" =~ ^[0-9]+$ ]] || [ "$MAX_MODULES" -lt 0 ]; then
-            echo "::error::Invalid max_modules: must be >= 0"
+          # Validate max modules (>= 0)
+          if [ "$MAX_MODULES" -lt 0 ] 2>/dev/null; then
+            echo "::error::Invalid max_modules: must be >= 0 (got $MAX_MODULES)"
             exit 1
           fi
           
-          if ! [[ "$MAX_ATTEMPTS" =~ ^[0-9]+$ ]] || [ "$MAX_ATTEMPTS" -lt 1 ]; then
-            echo "::error::Invalid max_refinement_attempts: must be >= 1"
+          # Validate max attempts (>= 1)
+          if [ "$MAX_ATTEMPTS" -lt 1 ] 2>/dev/null; then
+            echo "::error::Invalid max_refinement_attempts: must be >= 1 (got $MAX_ATTEMPTS)"
             exit 1
           fi
+          
+          # Export validated values
+          echo "VALIDATED_THRESHOLD=$THRESHOLD" >> $GITHUB_ENV
+          echo "VALIDATED_MAX_MODULES=$MAX_MODULES" >> $GITHUB_ENV
+          echo "VALIDATED_MAX_ATTEMPTS=$MAX_ATTEMPTS" >> $GITHUB_ENV
+          
+          echo "✅ Validated inputs:"
+          echo "  Coverage threshold: $THRESHOLD%"
+          echo "  Max modules: $MAX_MODULES"
+          echo "  Max refinement attempts: $MAX_ATTEMPTS"
           
           # Check source directory
           if [ ! -d "src" ] && [ ! -f "setup.py" ] && [ ! -f "pyproject.toml" ]; then
@@ -90,6 +124,9 @@ jobs:
           echo "# Test Generation Experiment Log" > generation_metrics.txt
           echo "Run ID: ${RUN_ID}" >> generation_metrics.txt
           echo "Started: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> generation_metrics.txt
+          echo "Coverage Threshold: $THRESHOLD%" >> generation_metrics.txt
+          echo "Max Modules: $MAX_MODULES" >> generation_metrics.txt
+          echo "Max Refinement Attempts: $MAX_ATTEMPTS" >> generation_metrics.txt
           echo "---" >> generation_metrics.txt
           
           echo "✅ Prerequisites validated"
@@ -152,9 +189,17 @@ jobs:
             echo "::warning::No tests found, using placeholder"
           fi
           
+          # Determine source directory
+          if [ -d "src" ]; then
+            SRC_DIR="src"
+          else
+            SRC_DIR="."
+          fi
+          echo "SRC_DIR=$SRC_DIR" >> $GITHUB_ENV
+          
           # Generate coverage
           poetry run pytest \
-            --cov="${SRC_DIR:-src}" \
+            --cov="$SRC_DIR" \
             --cov-report="json:${COVERAGE_INITIAL}" \
             --quiet \
             || true
@@ -175,7 +220,7 @@ jobs:
         run: |
           set -euo pipefail
           
-          THRESHOLD=${{ github.event.inputs.coverage_threshold }}
+          THRESHOLD=${{ env.VALIDATED_THRESHOLD }}
           echo "🔍 Finding modules below ${THRESHOLD}% coverage..."
           
           # Run gap finder
@@ -230,7 +275,7 @@ jobs:
           
           # Process modules
           MODULES='${{ steps.find-modules.outputs.modules }}'
-          MAX_MODULES=${{ github.event.inputs.max_modules }}
+          MAX_MODULES=${{ env.VALIDATED_MAX_MODULES }}
           
           # Apply limit
           if [ "$MAX_MODULES" -gt 0 ] && [ "$MODULE_COUNT" -gt "$MAX_MODULES" ]; then
@@ -274,6 +319,7 @@ jobs:
           if [ "$TEST_COUNT" -gt 0 ]; then
             echo "status=success" >> $GITHUB_OUTPUT
             echo "test_count=$TEST_COUNT" >> $GITHUB_OUTPUT
+            echo "✅ Generated $TEST_COUNT test files" | tee -a generation_metrics.txt
           else
             echo "status=no_tests" >> $GITHUB_OUTPUT
             echo "test_count=0" >> $GITHUB_OUTPUT
@@ -302,7 +348,7 @@ jobs:
           poetry run pytest tests/ \
             -v \
             --tb=short \
-            --cov="${SRC_DIR:-src}" \
+            --cov="${SRC_DIR}" \
             --cov-report="json:${COVERAGE_AFTER_GEN}" \
             2>&1 | tee test-results.log
           
@@ -311,7 +357,7 @@ jobs:
           
           # Generate final reports
           poetry run pytest tests/ \
-            --cov="${SRC_DIR:-src}" \
+            --cov="${SRC_DIR}" \
             --cov-report="html:coverage-final/" \
             --cov-report="json:coverage-final/${COVERAGE_FINAL}" \
             --quiet || true
@@ -346,7 +392,7 @@ jobs:
             exit 1
           fi
           
-          MAX_ATTEMPTS=${{ github.event.inputs.max_refinement_attempts }}
+          MAX_ATTEMPTS=${{ env.VALIDATED_MAX_ATTEMPTS }}
           INITIAL_FAILURES=${{ steps.test-run.outputs.failure_count }}
           CURRENT_FAILURES=$INITIAL_FAILURES
           
@@ -377,7 +423,7 @@ jobs:
             poetry run pytest tests/ \
               -v \
               --tb=short \
-              --cov="${SRC_DIR:-src}" \
+              --cov="${SRC_DIR}" \
               --cov-report="json:coverage-final/${COVERAGE_FINAL}" \
               2>&1 | tee "test-results-attempt-${ATTEMPT}.log" || true
             
@@ -487,6 +533,11 @@ jobs:
           - **Modules Found**: ${{ steps.find-modules.outputs.module_count }}
           - **Tests Generated**: ${{ steps.generate.outputs.test_count }}
           - **Test Status**: ${{ steps.test-run.outputs.status }}
+          
+          ## Configuration
+          - **Coverage Threshold**: ${{ env.VALIDATED_THRESHOLD }}%
+          - **Max Modules**: ${{ env.VALIDATED_MAX_MODULES }}
+          - **Max Refinement Attempts**: ${{ env.VALIDATED_MAX_ATTEMPTS }}
           
           ## Details
           EOF
