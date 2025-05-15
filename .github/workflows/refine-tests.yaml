@@ -21,8 +21,28 @@ env:
   COVERAGE_FINAL: coverage-final.json
 
 jobs:
+  validate-inputs:
+    name: Validate Inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate run_id
+        run: |
+          if [ -z "${{ github.event.inputs.run_id }}" ]; then
+            echo "::error::run_id is required"
+            exit 1
+          fi
+          
+          # Validate run_id is numeric
+          if ! [[ "${{ github.event.inputs.run_id }}" =~ ^[0-9]+$ ]]; then
+            echo "::error::run_id must be numeric"
+            exit 1
+          fi
+          
+          echo "RUN_ID=${{ github.event.inputs.run_id }}" >> $GITHUB_ENV
+
   refine-tests:
     name: Refine Tests
+    needs: validate-inputs
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
@@ -42,6 +62,7 @@ jobs:
           mkdir -p coverage-final/
 
       - name: 💾 Download test files from artifact
+        id: download-tests
         run: |
           # Get artifact download URL using GitHub API
           echo "Getting artifact download URL..."
@@ -66,11 +87,22 @@ jobs:
             "$DOWNLOAD_URL" \
             -o artifact.zip
           
+          # Verify zip file
+          if [ ! -f "artifact.zip" ]; then
+            echo "::error::Failed to download artifact"
+            exit 1
+          fi
+          
           # Extract to tests directory
           unzip -o artifact.zip -d tests/
+          if [ $? -ne 0 ]; then
+            echo "::error::Failed to extract artifact"
+            exit 1
+          fi
           rm artifact.zip
 
       - name: 💾 Download coverage files from artifact
+        id: download-coverage
         run: |
           # Get artifact download URL using GitHub API
           echo "Getting coverage artifact download URL..."
@@ -82,8 +114,8 @@ jobs:
             | jq -r ".artifacts[] | select(.name==\"$ARTIFACT_NAME\") | .archive_download_url")
           
           if [ -z "$DOWNLOAD_URL" ]; then
-            echo "::error::Could not find artifact: $ARTIFACT_NAME"
-            exit 1
+            echo "::warning::Could not find coverage artifact: $ARTIFACT_NAME"
+            exit 0
           fi
           
           echo "Downloading from: $DOWNLOAD_URL"
@@ -95,28 +127,22 @@ jobs:
             "$DOWNLOAD_URL" \
             -o coverage.zip
           
-          # Extract to current directory
-          unzip -o coverage.zip
-          rm coverage.zip
-
-      - name: Verify downloaded files
-        run: |
-          echo "Checking downloaded files..."
-          if [ -d "tests" ]; then
-            echo "Test files found:"
-            ls -la tests/
-          else
-            echo "::error::Test directory not found"
-            exit 1
+          # Verify zip file
+          if [ ! -f "coverage.zip" ]; then
+            echo "::warning::Failed to download coverage artifact"
+            exit 0
           fi
           
-          if [ -f "coverage-initial.json" ] && [ -f "coverage-final.json" ]; then
-            echo "Coverage files found"
-          else
-            echo "::warning::Some coverage files are missing"
+          # Extract to current directory
+          unzip -o coverage.zip
+          if [ $? -ne 0 ]; then
+            echo "::warning::Failed to extract coverage artifact"
+            exit 0
           fi
+          rm coverage.zip
 
       - name: 🔐 Validate prerequisites
+        id: validate
         run: |
           echo "🔍 Checking prerequisites..."
           
@@ -125,6 +151,14 @@ jobs:
           export TEMP_DIR="/tmp/test_refine_${RUN_ID}"
           mkdir -p "${TEMP_DIR}"
           echo "TEMP_DIR=${TEMP_DIR}" >> $GITHUB_ENV
+          
+          # Determine source directory
+          if [ -d "src" ]; then
+            SRC_DIR="src"
+          else
+            SRC_DIR="."
+          fi
+          echo "SRC_DIR=$SRC_DIR" >> $GITHUB_ENV
           
           # Check API key
           if [ -z "$OPENROUTER_API_KEY" ]; then
@@ -156,6 +190,7 @@ jobs:
           
           echo "✅ Validated inputs:"
           echo "  Max refinement attempts: $MAX_ATTEMPTS"
+          echo "  Source directory: $SRC_DIR"
           
           # Check source directory
           if [ ! -d "src" ] && [ ! -f "setup.py" ] && [ ! -f "pyproject.toml" ]; then
@@ -170,6 +205,7 @@ jobs:
           echo "Run ID: ${RUN_ID}" >> refinement_metrics.txt
           echo "Started: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> refinement_metrics.txt
           echo "Max Refinement Attempts: $MAX_ATTEMPTS" >> refinement_metrics.txt
+          echo "Source Directory: $SRC_DIR" >> refinement_metrics.txt
           echo "---" >> refinement_metrics.txt
           
           echo "✅ Prerequisites validated"
@@ -228,15 +264,15 @@ jobs:
           fi
           
           MAX_ATTEMPTS=${{ env.VALIDATED_MAX_ATTEMPTS }}
-          INITIAL_FAILURES="${{ steps.test-run.outputs.failure_count }}"
-          CURRENT_FAILURES="$INITIAL_FAILURES"
+          INITIAL_FAILURES="${INITIAL_FAILURES:-0}"
+          CURRENT_FAILURES="${INITIAL_FAILURES:-0}"
           
           echo "🔄 Starting refinement (max $MAX_ATTEMPTS attempts)" | tee -a refinement_metrics.txt
           echo "Initial failures: $INITIAL_FAILURES" | tee -a refinement_metrics.txt
           
           for ATTEMPT in $(seq 1 "$MAX_ATTEMPTS"); do
             # Early exit if no failures remain
-            if [ "$CURRENT_FAILURES" -eq 0 ]; then
+            if [ "${CURRENT_FAILURES:-0}" -eq 0 ]; then
               break
             fi
             
@@ -264,10 +300,11 @@ jobs:
               2>&1 | tee "test-results-attempt-${ATTEMPT}.log" || true
             
             # Count failures safely and trim newlines
-            PREVIOUS_FAILURES="$CURRENT_FAILURES"
+            PREVIOUS_FAILURES="${CURRENT_FAILURES:-0}"
             NEW_FAILURE_COUNT=$(grep -c "FAILED" "test-results-attempt-${ATTEMPT}.log" 2>/dev/null || echo "0")
-            # Trim any whitespace/newlines from the count
-            CURRENT_FAILURES=$(echo "$NEW_FAILURE_COUNT" | tr -d '\n' | xargs)
+            # Trim any whitespace/newlines and ensure it's a number
+            CURRENT_FAILURES=$(echo "$NEW_FAILURE_COUNT" | tr -d '\n' | sed 's/^0*//' | xargs)
+            CURRENT_FAILURES="${CURRENT_FAILURES:-0}"
             
             # Calculate fixed safely using if-then
             if [ "$PREVIOUS_FAILURES" -gt "$CURRENT_FAILURES" ]; then
@@ -290,7 +327,7 @@ jobs:
           done
           
           # Final summary with safe arithmetic
-          if [ "$INITIAL_FAILURES" -gt "$CURRENT_FAILURES" ]; then
+          if [ "${INITIAL_FAILURES:-0}" -gt "${CURRENT_FAILURES:-0}" ]; then
             TOTAL_FIXED=$((INITIAL_FAILURES - CURRENT_FAILURES))
           else
             TOTAL_FIXED=0
@@ -302,15 +339,15 @@ jobs:
           echo "  Remaining: $CURRENT_FAILURES" | tee -a refinement_metrics.txt
           
           # Set status based on results
-          if [ "$CURRENT_FAILURES" -eq 0 ]; then
+          if [ "${CURRENT_FAILURES:-0}" -eq 0 ]; then
             echo "status=all_fixed" >> $GITHUB_OUTPUT
-          elif [ "$CURRENT_FAILURES" -lt "$INITIAL_FAILURES" ]; then
+          elif [ "${CURRENT_FAILURES:-0}" -lt "${INITIAL_FAILURES:-0}" ]; then
             echo "status=partial_fix" >> $GITHUB_OUTPUT
           else
             echo "status=no_improvement" >> $GITHUB_OUTPUT
           fi
           
-          echo "final_failures=$(echo $CURRENT_FAILURES | tr -d '\n')" >> $GITHUB_OUTPUT
+          echo "final_failures=${CURRENT_FAILURES:-0}" >> $GITHUB_OUTPUT
 
       - name: 🧪 Run tests again
         id: test-run
@@ -343,15 +380,16 @@ jobs:
           # Analyze results with safe grep and trim newlines
           if [ "$TEST_EXIT_CODE" -ne 0 ]; then
             FAILURE_COUNT=$(grep -c "FAILED" test-results.log 2>/dev/null || echo "0")
-            # Trim any whitespace/newlines
-            FAILURE_COUNT=$(echo "$FAILURE_COUNT" | tr -d '\n' | xargs)
+            # Trim any whitespace/newlines and ensure it's a number
+            FAILURE_COUNT=$(echo "$FAILURE_COUNT" | tr -d '\n' | sed 's/^0*//' | xargs)
+            FAILURE_COUNT="${FAILURE_COUNT:-0}"
             echo "⚠️ $FAILURE_COUNT test failures" | tee -a refinement_metrics.txt
             
             # Extract error details
             grep -A 5 "FAILED\|ERROR" test-results.log > test-errors.log 2>/dev/null || true
             
             echo "status=has_failures" >> $GITHUB_OUTPUT
-            echo "failure_count=$(echo $FAILURE_COUNT | tr -d '\n')" >> $GITHUB_OUTPUT
+            echo "failure_count=$FAILURE_COUNT" >> $GITHUB_OUTPUT
           else
             echo "✅ All tests passed!" | tee -a refinement_metrics.txt
             echo "status=all_passed" >> $GITHUB_OUTPUT
@@ -359,7 +397,7 @@ jobs:
           fi
 
       - name: 💾 Upload refined test files as artifact
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v4
         with:
           name: refined-test-files-${{ github.run_id }}
           path: tests/
@@ -372,9 +410,9 @@ jobs:
           # Test Refinement Summary
           
           ## Overview
-          - **Initial Failures**: ${{ steps.test-run.outputs.failure_count }}
+          - **Initial Failures**: ${{ steps.refine.outputs.final_failures }}
           - **Refinement Status**: ${{ steps.refine.outputs.status }}
-          - **Final Failures**: ${{ steps.refine.outputs.final_failures }}
+          - **Final Failures**: ${{ steps.test-run.outputs.failure_count }}
           
           ## Configuration
           - **Max Refinement Attempts**: ${{ env.VALIDATED_MAX_ATTEMPTS }}
