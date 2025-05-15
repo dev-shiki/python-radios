@@ -18,7 +18,10 @@ on:
 env:
   DEFAULT_PYTHON: "3.11"
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+  # Standardized coverage file names
+  COVERAGE_INITIAL: coverage-initial.json
   COVERAGE_FINAL: coverage-final.json
+  COVERAGE_AFTER_GEN: coverage-after-generation.json
 
 jobs:
   validate-inputs:
@@ -140,6 +143,46 @@ jobs:
             exit 0
           fi
           rm coverage.zip
+
+      - name: 💾 Download experiment data from artifact
+        id: download-experiment
+        run: |
+          # Get artifact download URL using GitHub API
+          echo "Getting experiment data artifact download URL..."
+          ARTIFACT_NAME="experiment-data-${{ github.event.inputs.run_id }}"
+          DOWNLOAD_URL=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.inputs.run_id }}/artifacts" \
+            | jq -r ".artifacts[] | select(.name==\"$ARTIFACT_NAME\") | .archive_download_url")
+          
+          if [ -z "$DOWNLOAD_URL" ]; then
+            echo "::warning::Could not find experiment data artifact: $ARTIFACT_NAME"
+            exit 0
+          fi
+          
+          echo "Downloading from: $DOWNLOAD_URL"
+          
+          # Download using curl with GitHub token
+          curl -L \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "$DOWNLOAD_URL" \
+            -o experiment.zip
+          
+          # Verify zip file
+          if [ ! -f "experiment.zip" ]; then
+            echo "::warning::Failed to download experiment data artifact"
+            exit 0
+          fi
+          
+          # Extract to current directory
+          unzip -o experiment.zip
+          if [ $? -ne 0 ]; then
+            echo "::warning::Failed to extract experiment data artifact"
+            exit 0
+          fi
+          rm experiment.zip
 
       - name: 🔐 Validate prerequisites
         id: validate
@@ -417,12 +460,99 @@ jobs:
             echo "failure_count=0" >> $GITHUB_OUTPUT
           fi
 
+      - name: 📊 Generate coverage summary
+        if: always()
+        run: |
+          set -euo pipefail
+          
+          echo "�� Generating summary..." | tee -a refinement_metrics.txt
+          
+          # Try main script
+          if [ -f ".github/scripts/create_summary.py" ]; then
+            poetry run python .github/scripts/create_summary.py || {
+              echo "::warning::Summary script failed"
+              # Fallback inline
+              echo "# Coverage Summary" > COVERAGE_SUMMARY.md
+              
+              if [ -f "$COVERAGE_INITIAL" ]; then
+                INITIAL=$(jq -r '.totals.percent_covered // 0' "$COVERAGE_INITIAL")
+                echo "**Initial**: ${INITIAL}%" >> COVERAGE_SUMMARY.md
+              fi
+              
+              if [ -f "coverage-final/$COVERAGE_FINAL" ]; then
+                FINAL=$(jq -r '.totals.percent_covered // 0' "coverage-final/$COVERAGE_FINAL")
+                echo "**Final**: ${FINAL}%" >> COVERAGE_SUMMARY.md
+                
+                if [ -n "${INITIAL:-}" ]; then
+                  # Use safe arithmetic
+                  if command -v bc >/dev/null 2>&1; then
+                    DELTA=$(echo "scale=1; $FINAL - $INITIAL" | bc)
+                  else
+                    # Fallback to integer math if bc not available
+                    DELTA=$((${FINAL%.*} - ${INITIAL%.*}))
+                  fi
+                  echo "**Change**: ${DELTA}%" >> COVERAGE_SUMMARY.md
+                fi
+              fi
+            }
+          fi
+
+      - name: 📦 Collect experiment data
+        if: always()
+        run: |
+          set -euo pipefail
+          
+          echo "📦 Collecting data..." | tee -a refinement_metrics.txt
+          
+          # Try enhanced collector
+          if [ -f ".github/scripts/enhanced_collect_experiment_data.py" ]; then
+            poetry run python .github/scripts/enhanced_collect_experiment_data.py || {
+              echo "::warning::Enhanced collector failed, using fallback"
+              
+              # Simple fallback
+              TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+              ARCHIVE_DIR="experiment_data_${TIMESTAMP}"
+              mkdir -p "$ARCHIVE_DIR"
+              
+              # Copy all artifacts
+              for pattern in tests "*.json" "*.log" "*.txt" "*.md" coverage-final; do
+                if ls $pattern >/dev/null 2>&1; then
+                  cp -r $pattern "$ARCHIVE_DIR/" 2>/dev/null || true
+                fi
+              done
+              
+              zip -r "${ARCHIVE_DIR}.zip" "$ARCHIVE_DIR" || true
+            }
+          fi
+
       - name: 💾 Upload refined test files as artifact
         uses: actions/upload-artifact@v4
         with:
           name: refined-test-files-${{ github.run_id }}
           path: tests/
           if-no-files-found: error
+
+      - name: 💾 Upload coverage files as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: refined-coverage-files-${{ github.run_id }}
+          path: |
+            coverage-initial.json
+            coverage-final.json
+            coverage-after-generation.json
+          if-no-files-found: error
+
+      - name: 💾 Upload experiment data as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: refined-experiment-data-${{ github.run_id }}
+          path: |
+            experiment_data_*.zip
+            *.json
+            *.log
+            *.txt
+            *.md
+          if-no-files-found: warn
 
       - name: 📝 Create workflow summary
         if: always()
@@ -453,3 +583,290 @@ jobs:
         run: |
           # Remove temporary files
           rm -rf "${TEMP_DIR}" 2>/dev/null || true
+
+  create-pr:
+    name: Create Pull Request
+    needs: refine-tests
+    runs-on: ubuntu-latest
+    if: always()  # Tetap jalankan meski refine-tests gagal
+    
+    steps:
+      - name: ⚠️ Check refinement status
+        id: check-status
+        run: |
+          if [ "${{ needs.refine-tests.result }}" != "success" ]; then
+            echo "status=refinement_failed" >> $GITHUB_ENV
+            echo "::warning::Refinement job failed, but will attempt to create PR with available data"
+          else
+            echo "status=refinement_success" >> $GITHUB_ENV
+          fi
+
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.event.inputs.target_branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0  # Fetch all history for better branch management
+
+      - name: 💾 Download refined test files
+        id: download-tests
+        continue-on-error: true
+        run: |
+          # Get artifact download URL using GitHub API
+          echo "Getting refined test files artifact download URL..."
+          ARTIFACT_NAME="refined-test-files-${{ github.run_id }}"
+          DOWNLOAD_URL=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+            | jq -r ".artifacts[] | select(.name==\"$ARTIFACT_NAME\") | .archive_download_url")
+          
+          if [ -z "$DOWNLOAD_URL" ]; then
+            echo "::warning::Could not find refined test files artifact: $ARTIFACT_NAME"
+            echo "has_tests=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          echo "Downloading from: $DOWNLOAD_URL"
+          
+          # Download using curl with GitHub token
+          curl -L \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "$DOWNLOAD_URL" \
+            -o tests.zip
+          
+          # Verify zip file
+          if [ ! -f "tests.zip" ]; then
+            echo "::warning::Failed to download refined test files artifact"
+            echo "has_tests=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          # Extract to tests directory
+          unzip -o tests.zip -d tests/
+          if [ $? -ne 0 ]; then
+            echo "::warning::Failed to extract refined test files artifact"
+            echo "has_tests=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          rm tests.zip
+          
+          # Verify downloaded files
+          if [ ! -d "tests" ] || [ -z "$(ls -A tests/ 2>/dev/null)" ]; then
+            echo "::warning::No test files found in artifact"
+            echo "has_tests=false" >> $GITHUB_ENV
+          else
+            echo "has_tests=true" >> $GITHUB_ENV
+          fi
+
+      - name: 💾 Download refined coverage files
+        id: download-coverage
+        continue-on-error: true
+        run: |
+          # Get artifact download URL using GitHub API
+          echo "Getting refined coverage files artifact download URL..."
+          ARTIFACT_NAME="refined-coverage-files-${{ github.run_id }}"
+          DOWNLOAD_URL=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+            | jq -r ".artifacts[] | select(.name==\"$ARTIFACT_NAME\") | .archive_download_url")
+          
+          if [ -z "$DOWNLOAD_URL" ]; then
+            echo "::warning::Could not find refined coverage files artifact: $ARTIFACT_NAME"
+            echo "has_coverage=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          echo "Downloading from: $DOWNLOAD_URL"
+          
+          # Download using curl with GitHub token
+          curl -L \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "$DOWNLOAD_URL" \
+            -o coverage.zip
+          
+          # Verify zip file
+          if [ ! -f "coverage.zip" ]; then
+            echo "::warning::Failed to download refined coverage files artifact"
+            echo "has_coverage=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          # Extract to current directory
+          unzip -o coverage.zip
+          if [ $? -ne 0 ]; then
+            echo "::warning::Failed to extract refined coverage files artifact"
+            echo "has_coverage=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          rm coverage.zip
+          
+          # Verify coverage files
+          if [ ! -f "coverage-final.json" ]; then
+            echo "::warning::No coverage files found in artifact"
+            echo "has_coverage=false" >> $GITHUB_ENV
+          else
+            echo "has_coverage=true" >> $GITHUB_ENV
+          fi
+
+      - name: 💾 Download refined experiment data
+        id: download-experiment
+        continue-on-error: true
+        run: |
+          # Get artifact download URL using GitHub API
+          echo "Getting refined experiment data artifact download URL..."
+          ARTIFACT_NAME="refined-experiment-data-${{ github.run_id }}"
+          DOWNLOAD_URL=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+            | jq -r ".artifacts[] | select(.name==\"$ARTIFACT_NAME\") | .archive_download_url")
+          
+          if [ -z "$DOWNLOAD_URL" ]; then
+            echo "::warning::Could not find refined experiment data artifact: $ARTIFACT_NAME"
+            echo "has_experiment=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          echo "Downloading from: $DOWNLOAD_URL"
+          
+          # Download using curl with GitHub token
+          curl -L \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "$DOWNLOAD_URL" \
+            -o experiment.zip
+          
+          # Verify zip file
+          if [ ! -f "experiment.zip" ]; then
+            echo "::warning::Failed to download refined experiment data artifact"
+            echo "has_experiment=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          # Extract to current directory
+          unzip -o experiment.zip
+          if [ $? -ne 0 ]; then
+            echo "::warning::Failed to extract refined experiment data artifact"
+            echo "has_experiment=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          rm experiment.zip
+          
+          # Verify experiment data
+          if [ ! -f "experiment_data_*.zip" ]; then
+            echo "::warning::No experiment data found in artifact"
+            echo "has_experiment=false" >> $GITHUB_ENV
+          else
+            echo "has_experiment=true" >> $GITHUB_ENV
+          fi
+
+      - name: 🔄 Create new branch
+        run: |
+          # Create branch name with timestamp and run ID
+          BRANCH_NAME="refined-tests-$(date +%Y%m%d-%H%M%S)-${{ github.run_id }}"
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+          
+          # Check if branch already exists
+          if git ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
+            echo "::warning::Branch $BRANCH_NAME already exists, appending random suffix"
+            BRANCH_NAME="${BRANCH_NAME}-$(openssl rand -hex 4)"
+            echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+          fi
+          
+          # Create and switch to new branch
+          git checkout -b "$BRANCH_NAME"
+          
+          # Configure git
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+      - name: 📝 Commit changes
+        id: commit
+        run: |
+          # Add all changes
+          git add tests/
+          git add coverage-final/
+          git add *.json
+          git add *.log
+          git add *.txt
+          git add *.md
+          git add experiment_data_*.zip
+          
+          # Check if there are changes
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            echo "has_changes=false" >> $GITHUB_ENV
+            exit 0
+          fi
+          
+          # Create commit message based on available data
+          COMMIT_MSG="Refined tests and updated data\n\n"
+          
+          if [ "${{ env.has_tests }}" = "true" ]; then
+            COMMIT_MSG="${COMMIT_MSG}- Updated test files\n"
+          fi
+          
+          if [ "${{ env.has_coverage }}" = "true" ]; then
+            COMMIT_MSG="${COMMIT_MSG}- Updated coverage data\n"
+          fi
+          
+          if [ "${{ env.has_experiment }}" = "true" ]; then
+            COMMIT_MSG="${COMMIT_MSG}- Added experiment data\n"
+          fi
+          
+          if [ "${{ env.status }}" = "refinement_failed" ]; then
+            COMMIT_MSG="${COMMIT_MSG}\n⚠️ Note: Refinement job failed, but available data is included"
+          fi
+          
+          # Commit changes
+          git commit -m "$(echo -e "$COMMIT_MSG")"
+          echo "has_changes=true" >> $GITHUB_ENV
+
+      - name: 📤 Push changes
+        if: env.has_changes == 'true'
+        run: |
+          # Retry push up to 3 times
+          for i in {1..3}; do
+            if git push origin "$BRANCH_NAME"; then
+              break
+            fi
+            echo "::warning::Push attempt $i failed, retrying..."
+            sleep 5
+          done
+
+      - name: 📋 Create Pull Request
+        if: env.has_changes == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          title: "Refined Tests and Updated Coverage"
+          body: |
+            This PR contains refined tests and updated coverage data.
+            
+            ## Changes
+            ${{ env.has_tests == 'true' && '- Updated test files' || '' }}
+            ${{ env.has_coverage == 'true' && '- Updated coverage data' || '' }}
+            ${{ env.has_experiment == 'true' && '- Added experiment data' || '' }}
+            
+            ## Status
+            - Refinement Status: ${{ env.status }}
+            ${{ needs.refine-tests.outputs.final_failures != '' && format('- Initial Failures: %s', needs.refine-tests.outputs.final_failures) || '' }}
+            ${{ needs.refine-tests.outputs.status != '' && format('- Refinement Status: %s', needs.refine-tests.outputs.status) || '' }}
+            ${{ needs.refine-tests.outputs.failure_count != '' && format('- Final Failures: %s', needs.refine-tests.outputs.failure_count) || '' }}
+            
+            ## Coverage Summary
+            ${{ needs.refine-tests.outputs.coverage_summary != '' && format('```markdown\n%s\n```', needs.refine-tests.outputs.coverage_summary) || 'No coverage data available' }}
+            
+            ## Notes
+            ${{ env.status == 'refinement_failed' && '⚠️ Note: Refinement job failed, but available data is included' || '' }}
+          branch: ${{ env.BRANCH_NAME }}
+          base: ${{ github.event.inputs.target_branch }}
+          labels: |
+            tests
+            coverage
+            refinement
+          delete-branch: false  # Keep branch for debugging if needed

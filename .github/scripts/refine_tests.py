@@ -235,9 +235,10 @@ IMPORTANT GUIDELINES:
    - Ensure AsyncMock objects are properly configured to return awaitable values
    - Use AsyncMock.return_value = AsyncMock() for nested async calls
    - Set side_effect for async functions that need to raise exceptions
-4. For DNS error handling:
-   - Properly mock DNSResolver.query() to raise aiodns.error.DNSError
-   - Ensure error handling code properly catches and processes DNS errors
+4. For DNS error testing:
+   - Import aiodns.error.DNSError at the top of the test file
+   - Create a mock DNSResolver with AsyncMock
+   - Set the mock's query method to raise DNSError using side_effect
 5. Consider issues with:
    - Mocking (correct return values and assertions)
    - Data structures (field requirements, ordering)

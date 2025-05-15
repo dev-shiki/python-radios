@@ -16,6 +16,7 @@ on:
 env:
   DEFAULT_PYTHON: "3.11"
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+  # Standardized coverage file names
   COVERAGE_INITIAL: coverage-initial.json
   COVERAGE_FINAL: coverage-final.json
   COVERAGE_AFTER_GEN: coverage-after-generation.json
@@ -29,8 +30,6 @@ jobs:
     steps:
       - name: ⤵️ Check out code from GitHub
         uses: actions/checkout@v4.2.2
-        with:
-          ref: revert-2-ai-generated-tests-14921708095  # Checkout branch ini
 
       - name: 🔐 Validate prerequisites
         run: |
@@ -391,6 +390,71 @@ jobs:
             echo "failure_count=0" >> $GITHUB_OUTPUT
           fi
 
+      - name: 📊 Generate coverage summary
+        if: always()
+        run: |
+          set -euo pipefail
+          
+          echo "📊 Generating summary..." | tee -a generation_metrics.txt
+          
+          # Try main script
+          if [ -f ".github/scripts/create_summary.py" ]; then
+            poetry run python .github/scripts/create_summary.py || {
+              echo "::warning::Summary script failed"
+              # Fallback inline
+              echo "# Coverage Summary" > COVERAGE_SUMMARY.md
+              
+              if [ -f "$COVERAGE_INITIAL" ]; then
+                INITIAL=$(jq -r '.totals.percent_covered // 0' "$COVERAGE_INITIAL")
+                echo "**Initial**: ${INITIAL}%" >> COVERAGE_SUMMARY.md
+              fi
+              
+              if [ -f "coverage-final/$COVERAGE_FINAL" ]; then
+                FINAL=$(jq -r '.totals.percent_covered // 0' "coverage-final/$COVERAGE_FINAL")
+                echo "**Final**: ${FINAL}%" >> COVERAGE_SUMMARY.md
+                
+                if [ -n "${INITIAL:-}" ]; then
+                  # Use safe arithmetic
+                  if command -v bc >/dev/null 2>&1; then
+                    DELTA=$(echo "scale=1; $FINAL - $INITIAL" | bc)
+                  else
+                    # Fallback to integer math if bc not available
+                    DELTA=$((${FINAL%.*} - ${INITIAL%.*}))
+                  fi
+                  echo "**Change**: ${DELTA}%" >> COVERAGE_SUMMARY.md
+                fi
+              fi
+            }
+          fi
+
+      - name: �� Collect experiment data
+        if: always()
+        run: |
+          set -euo pipefail
+          
+          echo "📦 Collecting data..." | tee -a generation_metrics.txt
+          
+          # Try enhanced collector
+          if [ -f ".github/scripts/enhanced_collect_experiment_data.py" ]; then
+            poetry run python .github/scripts/enhanced_collect_experiment_data.py || {
+              echo "::warning::Enhanced collector failed, using fallback"
+              
+              # Simple fallback
+              TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+              ARCHIVE_DIR="experiment_data_${TIMESTAMP}"
+              mkdir -p "$ARCHIVE_DIR"
+              
+              # Copy all artifacts
+              for pattern in tests "*.json" "*.log" "*.txt" "*.md" coverage-final; do
+                if ls $pattern >/dev/null 2>&1; then
+                  cp -r $pattern "$ARCHIVE_DIR/" 2>/dev/null || true
+                fi
+              done
+              
+              zip -r "${ARCHIVE_DIR}.zip" "$ARCHIVE_DIR" || true
+            }
+          fi
+
       - name: 💾 Upload test files as artifact
         uses: actions/upload-artifact@v4
         with:
@@ -405,7 +469,20 @@ jobs:
           path: |
             coverage-initial.json
             coverage-final.json
+            coverage-after-generation.json
           if-no-files-found: error
+
+      - name: 💾 Upload experiment data as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: experiment-data-${{ github.run_id }}
+          path: |
+            experiment_data_*.zip
+            *.json
+            *.log
+            *.txt
+            *.md
+          if-no-files-found: warn
 
       - name: 📝 Create workflow summary
         if: always()
