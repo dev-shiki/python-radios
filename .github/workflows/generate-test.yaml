@@ -339,6 +339,9 @@ jobs:
             FAILURE_COUNT=0
             EXPECTED_FAILURES=0
             
+            # Get RUN_ID from environment
+            RUN_ID="${GITHUB_RUN_ID}_${GITHUB_RUN_NUMBER}"
+            
             # Count total failures safely
             if [ -f "test-results.log" ]; then
               # Count FAILED lines
@@ -361,7 +364,7 @@ jobs:
             fi
             
             # Log results
-            echo "Test Results Summary:" | tee -a generation_metrics.txt
+            echo "Test Results Summary (Run ID: $RUN_ID):" | tee -a generation_metrics.txt
             echo "  Total Failures: $FAILURE_COUNT" | tee -a generation_metrics.txt
             echo "  Expected Failures: $EXPECTED_FAILURES" | tee -a generation_metrics.txt
             echo "  Actual Failures: $ACTUAL_FAILURES" | tee -a generation_metrics.txt
