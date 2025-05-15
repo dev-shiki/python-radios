@@ -263,12 +263,35 @@ jobs:
             exit 1
           fi
           
+          # Get initial failures from test-results.log if it exists
+          if [ -f "test-results.log" ]; then
+            INITIAL_FAILURES=$(grep -c "FAILED" test-results.log 2>/dev/null || echo "0")
+            INITIAL_FAILURES=$(echo "$INITIAL_FAILURES" | tr -d '\n' | sed 's/^0*//' | xargs)
+            INITIAL_FAILURES="${INITIAL_FAILURES:-0}"
+          else
+            # If test-results.log doesn't exist, try to get from generation_metrics.txt
+            if [ -f "generation_metrics.txt" ]; then
+              INITIAL_FAILURES=$(grep "Initial Failures:" generation_metrics.txt | grep -o '[0-9]*' || echo "0")
+              INITIAL_FAILURES="${INITIAL_FAILURES:-0}"
+            else
+              echo "::warning::Could not find initial failure count, assuming 0"
+              INITIAL_FAILURES=0
+            fi
+          fi
+          
           MAX_ATTEMPTS=${{ env.VALIDATED_MAX_ATTEMPTS }}
-          INITIAL_FAILURES="${INITIAL_FAILURES:-0}"
-          CURRENT_FAILURES="${INITIAL_FAILURES:-0}"
+          CURRENT_FAILURES="$INITIAL_FAILURES"
           
           echo "🔄 Starting refinement (max $MAX_ATTEMPTS attempts)" | tee -a refinement_metrics.txt
           echo "Initial failures: $INITIAL_FAILURES" | tee -a refinement_metrics.txt
+          
+          # If no failures, exit early
+          if [ "$INITIAL_FAILURES" -eq 0 ]; then
+            echo "✅ No failures to refine" | tee -a refinement_metrics.txt
+            echo "status=no_failures" >> $GITHUB_OUTPUT
+            echo "final_failures=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
           
           for ATTEMPT in $(seq 1 "$MAX_ATTEMPTS"); do
             # Early exit if no failures remain
