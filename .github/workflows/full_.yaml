@@ -76,7 +76,7 @@ jobs:
           # Set defaults if empty
           THRESHOLD=${THRESHOLD:-80}
           MAX_MODULES=${MAX_MODULES:-5}
-          MAX_ATTEMPTS=${MAX_ATTEMPTS:-3}
+          MAX_ATTEMPTS=${MAX_ATTEMPTS:-2}
           
           echo "Debug - Cleaned inputs:"
           echo "  coverage_threshold: '$THRESHOLD'"
