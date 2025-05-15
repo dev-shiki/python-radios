@@ -780,6 +780,7 @@ REQUIREMENTS:
    - For side_effects that raise exceptions, use side_effect=Exception()
    - When asserting calls, PLEASE VERIFY the code actually reaches the call point
    - Mock external dependencies completely to isolate units under test
+   - If a test expects a mock to be called, ensure the test code triggers the code path that calls it
 
 5. URL AND HTTP TESTING:
    - Use unittest.mock.ANY for URL parameters in assert_called_with
