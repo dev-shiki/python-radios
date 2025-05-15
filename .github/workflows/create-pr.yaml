@@ -276,6 +276,3 @@ jobs:
             tests
             coverage
             refinement
-          delete-branch: false
-          commit-message: "Refined tests and updated coverage data"
-          title: "Refined Tests and Updated Coverage [${{ github.event.inputs.run_id }}]" 
