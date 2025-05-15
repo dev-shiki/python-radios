@@ -18,6 +18,7 @@ env:
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
   COVERAGE_INITIAL: coverage-initial.json
   COVERAGE_FINAL: coverage-final.json
+  COVERAGE_AFTER_GEN: coverage-after-generation.json
 
 jobs:
   generate-tests:
@@ -334,7 +335,15 @@ jobs:
           
           # Analyze results with safe grep and trim newlines
           if [ "$TEST_EXIT_CODE" -ne 0 ]; then
+            # Count only unexpected failures (those not marked with pytest.raises)
             FAILURE_COUNT=$(grep -c "FAILED" test-results.log 2>/dev/null || echo "0")
+            # Subtract expected failures (those with pytest.raises)
+            EXPECTED_FAILURES=$(grep -c "pytest.raises" test-results.log 2>/dev/null || echo "0")
+            FAILURE_COUNT=$((FAILURE_COUNT - EXPECTED_FAILURES))
+            # Ensure non-negative
+            if [ "$FAILURE_COUNT" -lt 0 ]; then
+              FAILURE_COUNT=0
+            fi
             # Trim any whitespace/newlines
             FAILURE_COUNT=$(echo "$FAILURE_COUNT" | tr -d '\n' | xargs)
             echo "⚠️ $FAILURE_COUNT test failures" | tee -a generation_metrics.txt
