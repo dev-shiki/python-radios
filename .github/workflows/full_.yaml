@@ -214,8 +214,9 @@ jobs:
             echo '{"totals": {"percent_covered": 0}, "files": {}}' > "$COVERAGE_INITIAL"
           fi
           
-          # Extract coverage safely
+          # Extract coverage safely and trim newlines
           INITIAL_COV=$(jq -r '.totals.percent_covered // 0' "$COVERAGE_INITIAL")
+          INITIAL_COV=$(echo "$INITIAL_COV" | tr -d '\n' | xargs)
           echo "initial_coverage=$INITIAL_COV" >> $GITHUB_OUTPUT
           echo "✅ Initial coverage: ${INITIAL_COV}%" | tee -a generation_metrics.txt
       
@@ -244,10 +245,11 @@ jobs:
             echo "[]" > modules.json
           fi
           
-          # Count and output
+          # Count and output with trimmed newlines
           MODULE_COUNT=$(jq '. | length' modules.json)
+          MODULE_COUNT=$(echo "$MODULE_COUNT" | tr -d '\n' | xargs)
           echo "module_count=$MODULE_COUNT" >> $GITHUB_OUTPUT
-          echo "modules=$(cat modules.json)" >> $GITHUB_OUTPUT
+          echo "modules=$(cat modules.json | tr -d '\n')" >> $GITHUB_OUTPUT
           echo "✅ Found $MODULE_COUNT modules" | tee -a generation_metrics.txt
           
           # Log module list
@@ -308,9 +310,11 @@ jobs:
             fi
           done
           
-          # Read final counts
+          # Read final counts and trim newlines
           SUCCESS=$(cat "${TEMP_DIR}/success_count" 2>/dev/null || echo "0")
+          SUCCESS=$(echo "$SUCCESS" | tr -d '\n' | xargs)
           FAILED=$(cat "${TEMP_DIR}/failed_count" 2>/dev/null || echo "0")
+          FAILED=$(echo "$FAILED" | tr -d '\n' | xargs)
           DURATION=$(($(date +%s) - START_TIME))
           
           echo "Generation Summary:" | tee -a generation_metrics.txt
@@ -323,7 +327,7 @@ jobs:
           
           if [ "$TEST_COUNT" -gt 0 ]; then
             echo "status=success" >> $GITHUB_OUTPUT
-            echo "test_count=$TEST_COUNT" >> $GITHUB_OUTPUT
+            echo "test_count=$(echo $TEST_COUNT | tr -d '\n')" >> $GITHUB_OUTPUT
             echo "✅ Generated $TEST_COUNT test files" | tee -a generation_metrics.txt
           else
             echo "status=no_tests" >> $GITHUB_OUTPUT
@@ -367,16 +371,18 @@ jobs:
             --cov-report="json:coverage-final/${COVERAGE_FINAL}" \
             --quiet 2>/dev/null || true
           
-          # Analyze results with safe grep
+          # Analyze results with safe grep and trim newlines
           if [ "$TEST_EXIT_CODE" -ne 0 ]; then
             FAILURE_COUNT=$(grep -c "FAILED" test-results.log 2>/dev/null || echo "0")
+            # Trim any whitespace/newlines
+            FAILURE_COUNT=$(echo "$FAILURE_COUNT" | tr -d '\n' | xargs)
             echo "⚠️ $FAILURE_COUNT test failures" | tee -a generation_metrics.txt
             
             # Extract error details
             grep -A 5 "FAILED\|ERROR" test-results.log > test-errors.log 2>/dev/null || true
             
             echo "status=has_failures" >> $GITHUB_OUTPUT
-            echo "failure_count=$FAILURE_COUNT" >> $GITHUB_OUTPUT
+            echo "failure_count=$(echo $FAILURE_COUNT | tr -d '\n')" >> $GITHUB_OUTPUT
           else
             echo "✅ All tests passed!" | tee -a generation_metrics.txt
             echo "status=all_passed" >> $GITHUB_OUTPUT
@@ -433,10 +439,11 @@ jobs:
               --cov-report="json:coverage-final/${COVERAGE_FINAL}" \
               2>&1 | tee "test-results-attempt-${ATTEMPT}.log" || true
             
-            # Count failures safely
+            # Count failures safely and trim newlines
             PREVIOUS_FAILURES="$CURRENT_FAILURES"
             NEW_FAILURE_COUNT=$(grep -c "FAILED" "test-results-attempt-${ATTEMPT}.log" 2>/dev/null || echo "0")
-            CURRENT_FAILURES="$NEW_FAILURE_COUNT"
+            # Trim any whitespace/newlines from the count
+            CURRENT_FAILURES=$(echo "$NEW_FAILURE_COUNT" | tr -d '\n' | xargs)
             
             # Calculate fixed safely using if-then
             if [ "$PREVIOUS_FAILURES" -gt "$CURRENT_FAILURES" ]; then
@@ -479,7 +486,7 @@ jobs:
             echo "status=no_improvement" >> $GITHUB_OUTPUT
           fi
           
-          echo "final_failures=$CURRENT_FAILURES" >> $GITHUB_OUTPUT
+          echo "final_failures=$(echo $CURRENT_FAILURES | tr -d '\n')" >> $GITHUB_OUTPUT
       
       # Step 6: Generate summary
       - name: 📊 Generate coverage summary
