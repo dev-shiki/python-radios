@@ -766,7 +766,16 @@ REQUIREMENTS:
    - For model classes with similar names (e.g., Station vs StationInfo), verify you're using the correct class
    - When in doubt about a field name, check how the field is accessed elsewhere in the codebase
 
-3. ASYNC PATTERNS:
+4. DNS AND NETWORK MOCKING:
+   - ALWAYS mock DNS resolution when testing code that uses aiodns or DNSResolver
+   - Use patch('aiodns.DNSResolver.query') to mock DNS queries
+   - Provide a valid mock response for DNS queries with proper SRV record structure
+   - Mock both DNS resolution AND HTTP responses in the same test
+   - Use consistent hostnames between DNS mock and HTTP mock
+   - Ensure DNS mock is set up BEFORE any HTTP client is created
+   - Handle DNS errors by mocking appropriate exceptions when needed
+
+5. ASYNC PATTERNS:
    - Configure AsyncMock objects with awaitable return values
    - Use pytest.mark.asyncio for all tests containing await expressions
    - Always await async function calls, including mocked functions
@@ -774,7 +783,7 @@ REQUIREMENTS:
    - Set up async iterators correctly when needed
    - Ensure all async resources are properly closed/cleaned up
 
-4. MOCKING ESSENTIALS:
+6. MOCKING ESSENTIALS:
    - Import Mock/AsyncMock directly from unittest.mock
    - Set return_value before using the mock
    - For side_effects that raise exceptions, use side_effect=Exception()
@@ -784,14 +793,14 @@ REQUIREMENTS:
    - Mock external dependencies completely to isolate units under test
    - If a test expects a mock to be called, ensure the test code triggers the code path that calls it
 
-5. URL AND HTTP TESTING:
+7. URL AND HTTP TESTING:
    - Use unittest.mock.ANY for URL parameters in assert_called_with
    - Don't directly compare URL strings; libraries often convert them to URL objects
    - For URL verification, either use string matching on parts or convert to string
    - When testing HTTP clients, verify only essential URL components
    - For exact URL testing, use str(url) to normalize objects and strings
 
-6. API TESTING CONSIDERATIONS:
+8. API TESTING CONSIDERATIONS:
    - DO NOT assume order of items in returned collections
    - INSTEAD OF asserting by index position, find items by key/property
    - Use set comparisons for unordered collections when appropriate  
@@ -799,7 +808,7 @@ REQUIREMENTS:
    - For paginated APIs, test both single page and multi-page scenarios
    - Validate type and structure rather than exact values when possible
 
-7. PYTEST BEST PRACTICES:
+9. PYTEST BEST PRACTICES:
    - Create fixtures at appropriate scope levels
    - Use parametrize for testing variations efficiently
    - Properly scope fixtures (function, class, module)
