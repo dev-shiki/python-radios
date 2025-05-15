@@ -41,17 +41,39 @@ jobs:
           rm -rf coverage-final/
           mkdir -p coverage-final/
 
-      - name: 💾 Download test files from artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: test-files-${{ github.event.inputs.run_id }}
-          path: tests/
+      - name: 💾 Download test files from artifact URL
+        run: |
+          # Get artifact URL
+          ARTIFACT_URL="https://github.com/dev-shiki/python-radios/actions/runs/${{ github.event.inputs.run_id }}/artifacts/3131841703"
+          echo "Downloading from: $ARTIFACT_URL"
+          
+          # Download using curl with GitHub token
+          curl -L \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "$ARTIFACT_URL" \
+            -o artifact.zip
+          
+          # Extract to tests directory
+          unzip -o artifact.zip -d tests/
+          rm artifact.zip
 
-      - name: 💾 Download coverage files from artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-files-${{ github.event.inputs.run_id }}
-          path: ./
+      - name: 💾 Download coverage files from artifact URL
+        run: |
+          # Get coverage artifact URL
+          COVERAGE_URL="https://github.com/dev-shiki/python-radios/actions/runs/${{ github.event.inputs.run_id }}/artifacts/3131841704"
+          echo "Downloading coverage from: $COVERAGE_URL"
+          
+          # Download using curl with GitHub token
+          curl -L \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "$COVERAGE_URL" \
+            -o coverage.zip
+          
+          # Extract to current directory
+          unzip -o coverage.zip
+          rm coverage.zip
 
       - name: Verify downloaded files
         run: |
