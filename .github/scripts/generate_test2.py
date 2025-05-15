@@ -778,6 +778,8 @@ REQUIREMENTS:
    - Import Mock/AsyncMock directly from unittest.mock
    - Set return_value before using the mock
    - For side_effects that raise exceptions, use side_effect=Exception()
+   - Use side_effect with exception instances for more predictable behavior
+   - Consider retry/backoff behavior when testing exception handling
    - When asserting calls, PLEASE VERIFY the code actually reaches the call point
    - Mock external dependencies completely to isolate units under test
    - If a test expects a mock to be called, ensure the test code triggers the code path that calls it
