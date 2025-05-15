@@ -778,7 +778,7 @@ REQUIREMENTS:
    - Import Mock/AsyncMock directly from unittest.mock
    - Set return_value before using the mock
    - For side_effects that raise exceptions, use side_effect=Exception()
-   - When asserting calls, verify the code actually reaches the call point
+   - When asserting calls, VERIFY the code actually reaches the call point
    - Mock external dependencies completely to isolate units under test
 
 5. URL AND HTTP TESTING:
@@ -807,6 +807,7 @@ NOTE : FAILED INJECTION FOR REFINEMENT
    - Create ONLY ONE test with a deliberate minor FAILED
    - This FAILED should be easily fixable but cause the test to fail
    - The FAILED should be in a non-critical test to allow other tests to pass
+   - (e.g, orjson.JSONDecodeError or typo)
 
 Return only runnable pytest code with no explanations or markdown. The code must be immediately usable without any modifications.
 """
