@@ -789,8 +789,8 @@ REQUIREMENTS:
    - For exact URL testing, use str(url) to normalize objects and strings
 
 6. API TESTING CONSIDERATIONS:
-   - Do not assume order of items in returned collections
-   - Instead of asserting by index position, find items by key/property
+   - DO NOT assume order of items in returned collections
+   - INSTEAD OF asserting by index position, find items by key/property
    - Use set comparisons for unordered collections when appropriate  
    - For sorted data, verify the sorting logic explicitly
    - For paginated APIs, test both single page and multi-page scenarios
