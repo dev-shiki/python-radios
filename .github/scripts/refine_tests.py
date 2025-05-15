@@ -231,14 +231,21 @@ SOURCE CODE CONTEXT:
 IMPORTANT GUIDELINES:
 1. Fix ALL errors shown in the output
 2. Maintain the original test structure and intent
-3. Consider issues with:
+3. For AsyncMock issues:
+   - Ensure AsyncMock objects are properly configured to return awaitable values
+   - Use AsyncMock.return_value = AsyncMock() for nested async calls
+   - Set side_effect for async functions that need to raise exceptions
+4. For DNS error handling:
+   - Properly mock DNSResolver.query() to raise aiodns.error.DNSError
+   - Ensure error handling code properly catches and processes DNS errors
+5. Consider issues with:
    - Mocking (correct return values and assertions)
    - Data structures (field requirements, ordering)
    - Asynchronous code (proper awaiting and async patterns)
    - URL handling (string vs object comparisons)
    - Type compatibility (expected vs actual types)
-4. Return ONLY the complete fixed test code with no explanations
-5. Make minimal changes necessary to fix the failing tests
+6. Return ONLY the complete fixed test code with no explanations
+7. Make minimal changes necessary to fix the failing tests
 
 The fixed code should pass when executed with pytest.
 """
