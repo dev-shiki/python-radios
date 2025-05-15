@@ -745,75 +745,39 @@ LIBRARY CONTEXT:
 
 REQUIREMENTS:
 
-1. FUNDAMENTALS:
-   - Write comprehensive tests for all public functions/methods
-   - Test both success and failure paths
-   - Use descriptive test names (test_function_scenario format)
-   - Ensure each test stands alone and doesn't depend on other tests
+## MODEL SETUP
+- Include EVERY field when initializing models (required and optional)
+- Verify field names exist in actual model definition (case-sensitive)
+- Ensure correct model class is used when similar names exist
+- Match exact field types and constraints from specifications
 
-2. DATA HANDLING:
-   - When creating ANY model instance, always include EVERY field
-   - Never omit fields from constructors, even if they seem optional
-   - For Optional fields, explicitly set to None or a valid value
-   - Match exact field names and types from model definitions
-   - Create valid test data that meets all model constraints
+## MOCKING STRATEGY
+- Import Mock/AsyncMock from unittest.mock
+- Set return_value/side_effect BEFORE using mocks
+- Use side_effect with exception instances (not classes)
+- For DNS testing:
+  - Always mock DNSResolver.query with proper SRV records
+  - Ensure DNS mocks are set up BEFORE HTTP client creation
+  - Use consistent hostnames between DNS and HTTP mocks
 
-3. MODEL VERIFICATION:
-   - Before creating model instances, VERIFY each field name exists in the actual model definition
-   - CHECK field names exactly as they appear in model signatures (case-sensitive)
-   - Ensure all required fields are provided and no extra/invalid fields are included
-   - Use IDE-like validation - "if it's not in the model definition, don't use it"
-   - For model classes with similar names (e.g., Station vs StationInfo), verify you're using the correct class
-   - When in doubt about a field name, check how the field is accessed elsewhere in the codebase
+## ASYNC HANDLING
+- Use pytest.mark.asyncio for tests with await expressions
+- Always await async calls (including mocked functions)
+- Properly configure AsyncMock with awaitable return values
+- Handle async context managers and iterators correctly
 
-4. DNS AND NETWORK MOCKING:
-   - ALWAYS mock DNS resolution when testing code that uses aiodns or DNSResolver
-   - Use patch('aiodns.DNSResolver.query') to mock DNS queries
-   - Provide a valid mock response for DNS queries with proper SRV record structure
-   - Mock both DNS resolution AND HTTP responses in the same test
-   - Use consistent hostnames between DNS mock and HTTP mock
-   - Ensure DNS mock is set up BEFORE any HTTP client is created
-   - Handle DNS errors by mocking appropriate exceptions when needed
+## VALIDATION APPROACH
+- For URLs: Use unittest.mock.ANY for parameters or str(url) for exact matching
+- For collections: Avoid index-based assertions, find by key/property instead
+- For API responses: Test structure and types rather than exact values
+- Use set comparisons for unordered collections
+- Test pagination with both single and multi-page scenarios
 
-5. ASYNC PATTERNS:
-   - Configure AsyncMock objects with awaitable return values
-   - Use pytest.mark.asyncio for all tests containing await expressions
-   - Always await async function calls, including mocked functions
-   - Properly handle async context managers (__aenter__/__aexit__)
-   - Set up async iterators correctly when needed
-   - Ensure all async resources are properly closed/cleaned up
-
-6. MOCKING ESSENTIALS:
-   - Import Mock/AsyncMock directly from unittest.mock
-   - Set return_value before using the mock
-   - For side_effects that raise exceptions, use side_effect=Exception()
-   - Use side_effect with exception instances for more predictable behavior
-   - Consider retry/backoff behavior when testing exception handling
-   - When asserting calls, PLEASE VERIFY the code actually reaches the call point
-   - Mock external dependencies completely to isolate units under test
-   - If a test expects a mock to be called, ensure the test code triggers the code path that calls it
-
-7. URL AND HTTP TESTING:
-   - Use unittest.mock.ANY for URL parameters in assert_called_with
-   - Don't directly compare URL strings; libraries often convert them to URL objects
-   - For URL verification, either use string matching on parts or convert to string
-   - When testing HTTP clients, verify only essential URL components
-   - For exact URL testing, use str(url) to normalize objects and strings
-
-8. API TESTING CONSIDERATIONS:
-   - DO NOT assume order of items in returned collections
-   - INSTEAD OF asserting by index position, find items by key/property
-   - Use set comparisons for unordered collections when appropriate  
-   - For sorted data, verify the sorting logic explicitly
-   - For paginated APIs, test both single page and multi-page scenarios
-   - Validate type and structure rather than exact values when possible
-
-9. PYTEST BEST PRACTICES:
-   - Create fixtures at appropriate scope levels
-   - Use parametrize for testing variations efficiently
-   - Properly scope fixtures (function, class, module)
-   - Test exception cases with pytest.raises contextmanager
-   - Group related tests in classes when appropriate
+## PYTEST PRACTICES
+- Create appropriately scoped fixtures
+- Use parametrize for testing variations
+- Test exceptions with pytest.raises contextmanager
+- Group related tests in classes when logical
 
 Return only runnable pytest code with no explanations or markdown. The code must be immediately usable without any modifications.
 """
