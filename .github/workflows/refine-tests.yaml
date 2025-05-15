@@ -767,7 +767,7 @@ jobs:
           rm experiment.zip
           
           # Verify experiment data
-          if [ ! -f "experiment_data_*.zip" ]; then
+          if ! ls experiment_data_*.zip >/dev/null 2>&1; then
             echo "::warning::No experiment data found in artifact"
             echo "has_experiment=false" >> $GITHUB_ENV
           else
@@ -788,7 +788,10 @@ jobs:
           fi
           
           # Create and switch to new branch
-          git checkout -b "$BRANCH_NAME"
+          git checkout -b "$BRANCH_NAME" || {
+            echo "::error::Failed to create branch $BRANCH_NAME"
+            exit 1
+          }
           
           # Configure git
           git config --global user.name "GitHub Actions"
@@ -797,12 +800,18 @@ jobs:
       - name: 📝 Commit changes
         id: commit
         run: |
+          set -euo pipefail
+          
           # Add all changes
           git add tests/
           
           # Add coverage files if they exist
           if [ -d "coverage-final" ] && [ -n "$(ls -A coverage-final/ 2>/dev/null)" ]; then
+            echo "📊 Adding coverage files..."
             git add coverage-final/
+            echo "✅ Coverage files added"
+          else
+            echo "ℹ️ No coverage files to add"
           fi
           
           # Add other files
@@ -820,7 +829,8 @@ jobs:
           fi
           
           # Create commit message based on available data
-          COMMIT_MSG="Refined tests and updated data\n\n"
+          TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          COMMIT_MSG="Refined tests and updated data [$TIMESTAMP]\n\n"
           
           if [ "${{ env.has_tests }}" = "true" ]; then
             COMMIT_MSG="${COMMIT_MSG}- Updated test files\n"
@@ -839,20 +849,29 @@ jobs:
           fi
           
           # Commit changes
-          git commit -m "$(echo -e "$COMMIT_MSG")"
+          if ! git commit -m "$(echo -e "$COMMIT_MSG")"; then
+            echo "::error::Failed to commit changes"
+            exit 1
+          fi
           echo "has_changes=true" >> $GITHUB_ENV
 
       - name: 📤 Push changes
         if: env.has_changes == 'true'
         run: |
+          set -euo pipefail
+          
           # Retry push up to 3 times
           for i in {1..3}; do
             if git push origin "$BRANCH_NAME"; then
-              break
+              echo "Successfully pushed to $BRANCH_NAME"
+              exit 0
             fi
             echo "::warning::Push attempt $i failed, retrying..."
             sleep 5
           done
+          
+          echo "::error::Failed to push changes after 3 attempts"
+          exit 1
 
       - name: 📋 Create Pull Request
         if: env.has_changes == 'true'
