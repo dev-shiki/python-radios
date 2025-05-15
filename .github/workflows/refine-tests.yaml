@@ -203,6 +203,9 @@ jobs:
           fi
           echo "SRC_DIR=$SRC_DIR" >> $GITHUB_ENV
           
+          # Ensure coverage directory exists
+          mkdir -p coverage-final/
+          
           # Check API key
           if [ -z "$OPENROUTER_API_KEY" ]; then
             echo "::error::OPENROUTER_API_KEY not set in secrets"
@@ -308,6 +311,10 @@ jobs:
           
           # Run initial test to get failure count
           echo "Running initial test to get failure count..."
+          
+          # Ensure coverage directory exists
+          mkdir -p coverage-final/
+          
           poetry run pytest tests/ \
             -v \
             --tb=short \
@@ -429,6 +436,9 @@ jobs:
           
           echo "🧪 Running $TEST_COUNT test files" | tee -a refinement_metrics.txt
           
+          # Ensure coverage directory exists
+          mkdir -p coverage-final/
+          
           # Run tests (allow failure)
           set +e
           poetry run pytest tests/ \
@@ -465,7 +475,7 @@ jobs:
         run: |
           set -euo pipefail
           
-          echo "�� Generating summary..." | tee -a refinement_metrics.txt
+          echo "Generating summary..." | tee -a refinement_metrics.txt
           
           # Try main script
           if [ -f ".github/scripts/create_summary.py" ]; then
@@ -789,7 +799,13 @@ jobs:
         run: |
           # Add all changes
           git add tests/
-          git add coverage-final/
+          
+          # Add coverage files if they exist
+          if [ -d "coverage-final" ] && [ -n "$(ls -A coverage-final/ 2>/dev/null)" ]; then
+            git add coverage-final/
+          fi
+          
+          # Add other files
           git add *.json
           git add *.log
           git add *.txt
