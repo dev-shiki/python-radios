@@ -15,7 +15,7 @@ on:
       max_refinement_attempts:
         description: 'Maximum refinement attempts for failing tests'
         required: false
-        default: '3'
+        default: '2'
 
 env:
   DEFAULT_PYTHON: "3.11"
