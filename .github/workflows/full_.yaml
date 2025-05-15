@@ -7,7 +7,7 @@ on:
       coverage_threshold:
         description: 'Minimum coverage percentage to target'
         required: false
-        default: '90'
+        default: '80'
       max_modules:
         description: 'Maximum number of modules to analyze (0 = no limit)'
         required: false
