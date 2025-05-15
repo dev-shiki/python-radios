@@ -32,6 +32,15 @@ jobs:
         with:
           ref: ${{ github.event.inputs.target_branch }}
 
+      - name: Prepare directories
+        run: |
+          # Clean and prepare test directory
+          rm -rf tests/
+          mkdir -p tests/
+          # Clean and prepare coverage directory
+          rm -rf coverage-final/
+          mkdir -p coverage-final/
+
       - name: 💾 Download test files from artifact
         uses: actions/download-artifact@v4
         with:
@@ -43,6 +52,23 @@ jobs:
         with:
           name: coverage-files-${{ github.event.inputs.run_id }}
           path: ./
+
+      - name: Verify downloaded files
+        run: |
+          echo "Checking downloaded files..."
+          if [ -d "tests" ]; then
+            echo "Test files found:"
+            ls -la tests/
+          else
+            echo "::error::Test directory not found"
+            exit 1
+          fi
+          
+          if [ -f "coverage-initial.json" ] && [ -f "coverage-final.json" ]; then
+            echo "Coverage files found"
+          else
+            echo "::warning::Some coverage files are missing"
+          fi
 
       - name: 🔐 Validate prerequisites
         run: |
