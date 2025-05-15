@@ -1,0 +1,324 @@
+name: Refine Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_refinement_attempts:
+        description: 'Maximum refinement attempts for failing tests'
+        required: false
+        default: '2'
+      target_branch:
+        description: 'Branch to refine tests from'
+        required: true
+        default: 'revert-2-ai-generated-tests-14921708095'
+      run_id:
+        description: 'Run ID of the generate test workflow'
+        required: true
+
+env:
+  DEFAULT_PYTHON: "3.11"
+  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+  COVERAGE_FINAL: coverage-final.json
+
+jobs:
+  refine-tests:
+    name: Refine Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.event.inputs.target_branch }}
+
+      - name: 💾 Download test files from artifact
+        uses: actions/download-artifact@v4.6.2
+        with:
+          name: test-files-${{ github.event.inputs.run_id }}
+          path: tests/
+
+      - name: 💾 Download coverage files from artifact
+        uses: actions/download-artifact@v4.6.2
+        with:
+          name: coverage-files-${{ github.event.inputs.run_id }}
+          path: ./
+
+      - name: 🔐 Validate prerequisites
+        run: |
+          echo "🔍 Checking prerequisites..."
+          
+          # Create temp directory for this run
+          RUN_ID="${GITHUB_RUN_ID}_${GITHUB_RUN_NUMBER}"
+          export TEMP_DIR="/tmp/test_refine_${RUN_ID}"
+          mkdir -p "${TEMP_DIR}"
+          echo "TEMP_DIR=${TEMP_DIR}" >> $GITHUB_ENV
+          
+          # Check API key
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::OPENROUTER_API_KEY not set in secrets"
+            exit 1
+          fi
+          echo "✅ API key found"
+          
+          # Get input parameters with defaults
+          MAX_ATTEMPTS="${{ github.event.inputs.max_refinement_attempts }}"
+          
+          # Default values if empty
+          MAX_ATTEMPTS="${MAX_ATTEMPTS:-2}"
+          
+          # Clean inputs - remove all non-numeric characters
+          MAX_ATTEMPTS=$(echo "$MAX_ATTEMPTS" | sed 's/[^0-9]//g')
+          
+          # Set defaults if empty after cleaning
+          MAX_ATTEMPTS="${MAX_ATTEMPTS:-2}"
+          
+          # Validate max attempts (>= 1)
+          if [ "$MAX_ATTEMPTS" -lt 1 ] 2>/dev/null; then
+            echo "::error::Invalid max_refinement_attempts: must be >= 1 (got $MAX_ATTEMPTS)"
+            exit 1
+          fi
+          
+          # Export validated values
+          echo "VALIDATED_MAX_ATTEMPTS=$MAX_ATTEMPTS" >> $GITHUB_ENV
+          
+          echo "✅ Validated inputs:"
+          echo "  Max refinement attempts: $MAX_ATTEMPTS"
+          
+          # Check source directory
+          if [ ! -d "src" ] && [ ! -f "setup.py" ] && [ ! -f "pyproject.toml" ]; then
+            echo "::warning::No standard Python project structure found"
+          fi
+          
+          # Create necessary directories
+          mkdir -p coverage-final .github/scripts
+          
+          # Initialize log files with headers
+          echo "# Test Refinement Experiment Log" > refinement_metrics.txt
+          echo "Run ID: ${RUN_ID}" >> refinement_metrics.txt
+          echo "Started: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> refinement_metrics.txt
+          echo "Max Refinement Attempts: $MAX_ATTEMPTS" >> refinement_metrics.txt
+          echo "---" >> refinement_metrics.txt
+          
+          echo "✅ Prerequisites validated"
+
+      - name: 🏗 Set up Poetry
+        run: |
+          pipx install poetry
+          poetry config virtualenvs.create true
+          poetry config virtualenvs.in-project true
+
+      - name: 🏗 Set up Python ${{ env.DEFAULT_PYTHON }}
+        uses: actions/setup-python@v5.5.0
+        with:
+          python-version: ${{ env.DEFAULT_PYTHON }}
+          cache: "poetry"
+
+      - name: 🏗 Install dependencies
+        run: |
+          set -euo pipefail
+          
+          # Install base dependencies
+          poetry install --no-interaction || {
+            echo "::error::Failed to install base dependencies"
+            exit 1
+          }
+          
+          # Ensure required packages are installed
+          REQUIRED_PACKAGES="pytest pytest-cov pytest-asyncio openai"
+          for package in $REQUIRED_PACKAGES; do
+            if ! poetry show "$package" &>/dev/null; then
+              echo "📦 Installing $package..."
+              poetry add "$package" --group dev || {
+                echo "::error::Failed to install $package"
+                exit 1
+              }
+            fi
+          done
+          
+          # Verify environment
+          poetry check || {
+            echo "::warning::Poetry environment check failed"
+          }
+          
+          echo "✅ Dependencies ready"
+
+      - name: 🔄 Refine failing tests
+        id: refine
+        run: |
+          set -euo pipefail
+          
+          # Verify script
+          if [ ! -f ".github/scripts/refine_tests.py" ]; then
+            echo "::error::refine_tests.py not found"
+            echo "status=script_missing" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          MAX_ATTEMPTS=${{ env.VALIDATED_MAX_ATTEMPTS }}
+          INITIAL_FAILURES="${{ steps.test-run.outputs.failure_count }}"
+          CURRENT_FAILURES="$INITIAL_FAILURES"
+          
+          echo "🔄 Starting refinement (max $MAX_ATTEMPTS attempts)" | tee -a refinement_metrics.txt
+          echo "Initial failures: $INITIAL_FAILURES" | tee -a refinement_metrics.txt
+          
+          for ATTEMPT in $(seq 1 "$MAX_ATTEMPTS"); do
+            # Early exit if no failures remain
+            if [ "$CURRENT_FAILURES" -eq 0 ]; then
+              break
+            fi
+            
+            echo "" | tee -a refinement_metrics.txt
+            echo "Refinement attempt $ATTEMPT/$MAX_ATTEMPTS" | tee -a refinement_metrics.txt
+            ATTEMPT_START=$(date +%s)
+            
+            # Run refinement
+            set +e
+            poetry run python .github/scripts/refine_tests.py \
+              2>&1 | tee "refinement_attempt_${ATTEMPT}.log"
+            REFINE_EXIT=$?
+            set -e
+            
+            if [ "$REFINE_EXIT" -ne 0 ]; then
+              echo "::warning::Refinement script exited with code $REFINE_EXIT"
+            fi
+            
+            # Test again
+            poetry run pytest tests/ \
+              -v \
+              --tb=short \
+              --cov="${SRC_DIR}" \
+              --cov-report="json:coverage-final/${COVERAGE_FINAL}" \
+              2>&1 | tee "test-results-attempt-${ATTEMPT}.log" || true
+            
+            # Count failures safely and trim newlines
+            PREVIOUS_FAILURES="$CURRENT_FAILURES"
+            NEW_FAILURE_COUNT=$(grep -c "FAILED" "test-results-attempt-${ATTEMPT}.log" 2>/dev/null || echo "0")
+            # Trim any whitespace/newlines from the count
+            CURRENT_FAILURES=$(echo "$NEW_FAILURE_COUNT" | tr -d '\n' | xargs)
+            
+            # Calculate fixed safely using if-then
+            if [ "$PREVIOUS_FAILURES" -gt "$CURRENT_FAILURES" ]; then
+              FIXED=$((PREVIOUS_FAILURES - CURRENT_FAILURES))
+            else
+              FIXED=0
+            fi
+            
+            DURATION=$(($(date +%s) - ATTEMPT_START))
+            
+            echo "Attempt $ATTEMPT results:" | tee -a refinement_metrics.txt
+            echo "  Duration: ${DURATION}s" | tee -a refinement_metrics.txt
+            echo "  Fixed: $FIXED" | tee -a refinement_metrics.txt
+            echo "  Remaining: $CURRENT_FAILURES" | tee -a refinement_metrics.txt
+            
+            # Update error log for next iteration if needed
+            if [ "$CURRENT_FAILURES" -gt 0 ] && [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then
+              grep -A 5 "FAILED\|ERROR" "test-results-attempt-${ATTEMPT}.log" > test-errors.log 2>/dev/null || true
+            fi
+          done
+          
+          # Final summary with safe arithmetic
+          if [ "$INITIAL_FAILURES" -gt "$CURRENT_FAILURES" ]; then
+            TOTAL_FIXED=$((INITIAL_FAILURES - CURRENT_FAILURES))
+          else
+            TOTAL_FIXED=0
+          fi
+          
+          echo "" | tee -a refinement_metrics.txt
+          echo "Refinement complete:" | tee -a refinement_metrics.txt
+          echo "  Total fixed: $TOTAL_FIXED" | tee -a refinement_metrics.txt
+          echo "  Remaining: $CURRENT_FAILURES" | tee -a refinement_metrics.txt
+          
+          # Set status based on results
+          if [ "$CURRENT_FAILURES" -eq 0 ]; then
+            echo "status=all_fixed" >> $GITHUB_OUTPUT
+          elif [ "$CURRENT_FAILURES" -lt "$INITIAL_FAILURES" ]; then
+            echo "status=partial_fix" >> $GITHUB_OUTPUT
+          else
+            echo "status=no_improvement" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "final_failures=$(echo $CURRENT_FAILURES | tr -d '\n')" >> $GITHUB_OUTPUT
+
+      - name: 🧪 Run tests again
+        id: test-run
+        run: |
+          set -euo pipefail
+          
+          # Count actual test files
+          TEST_COUNT=$(find tests -name "test_*.py" -not -name "test_placeholder.py" | wc -l)
+          
+          if [ "$TEST_COUNT" -eq 0 ]; then
+            echo "ℹ️ No tests to run"
+            echo "status=no_tests" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "🧪 Running $TEST_COUNT test files" | tee -a refinement_metrics.txt
+          
+          # Run tests (allow failure)
+          set +e
+          poetry run pytest tests/ \
+            -v \
+            --tb=short \
+            --cov="${SRC_DIR}" \
+            --cov-report="json:coverage-final/${COVERAGE_FINAL}" \
+            2>&1 | tee test-results.log
+          
+          TEST_EXIT_CODE=$?
+          set -e
+          
+          # Analyze results with safe grep and trim newlines
+          if [ "$TEST_EXIT_CODE" -ne 0 ]; then
+            FAILURE_COUNT=$(grep -c "FAILED" test-results.log 2>/dev/null || echo "0")
+            # Trim any whitespace/newlines
+            FAILURE_COUNT=$(echo "$FAILURE_COUNT" | tr -d '\n' | xargs)
+            echo "⚠️ $FAILURE_COUNT test failures" | tee -a refinement_metrics.txt
+            
+            # Extract error details
+            grep -A 5 "FAILED\|ERROR" test-results.log > test-errors.log 2>/dev/null || true
+            
+            echo "status=has_failures" >> $GITHUB_OUTPUT
+            echo "failure_count=$(echo $FAILURE_COUNT | tr -d '\n')" >> $GITHUB_OUTPUT
+          else
+            echo "✅ All tests passed!" | tee -a refinement_metrics.txt
+            echo "status=all_passed" >> $GITHUB_OUTPUT
+            echo "failure_count=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 💾 Upload refined test files as artifact
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: refined-test-files-${{ github.run_id }}
+          path: tests/
+          if-no-files-found: error
+
+      - name: 📝 Create workflow summary
+        if: always()
+        run: |
+          cat <<EOF >> $GITHUB_STEP_SUMMARY
+          # Test Refinement Summary
+          
+          ## Overview
+          - **Initial Failures**: ${{ steps.test-run.outputs.failure_count }}
+          - **Refinement Status**: ${{ steps.refine.outputs.status }}
+          - **Final Failures**: ${{ steps.refine.outputs.final_failures }}
+          
+          ## Configuration
+          - **Max Refinement Attempts**: ${{ env.VALIDATED_MAX_ATTEMPTS }}
+          
+          ## Details
+          EOF
+          
+          # Add metrics
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Metrics" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -30 refinement_metrics.txt >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "No metrics"
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: 🧹 Cleanup
+        if: always()
+        run: |
+          # Remove temporary files
+          rm -rf "${TEMP_DIR}" 2>/dev/null || true
