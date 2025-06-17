@@ -841,13 +841,13 @@ Return only runnable pytest code with no explanations or markdown. The code must
 
 
 class MSPPTestGenerator:
-    """Multi-Stage Prompt Processing Test Generator implementing 5-stage MSPP concept."""
+    """Multi-Stage Prompt Processing Test Generator implementing single-call MSPP concept."""
     
     def __init__(self, 
                  api_key: str,
                  coverage_threshold: float = 80.0,
                  model: str = "anthropic/claude-3.7-sonnet"):
-        """Initialize with configuration for all MSPP stages."""
+        """Initialize with configuration for single-call MSPP."""
         if not api_key:
             raise ValueError("API key is required")
         
@@ -859,17 +859,6 @@ class MSPPTestGenerator:
         self.test_file_path = None
         self.api_logs = []
         self.start_time = time.time()
-        self.retry_count = 0
-        self.max_retries = 3
-        
-        # Stage-specific parameters
-        self.stage_params = {
-            "context_establishment": {"temperature": 0.2, "top_p": 0.95},
-            "test_structure": {"temperature": 0.4, "top_p": 0.85},
-            "test_logic": {"temperature": 0.3, "top_p": 0.90},
-            "refinement": {"temperature": 0.1, "top_p": 0.98},
-            "validation": {"temperature": 0.0, "top_p": 1.0}
-        }
     
     def _setup_openai(self):
         """Configure OpenAI client for various providers."""
@@ -884,191 +873,127 @@ class MSPPTestGenerator:
             print(f"Error setting up OpenAI client: {e}")
             raise
     
-    def _call_ai(self, stage: str, context: dict) -> str:
-        """Call the AI model with stage-specific parameters and error handling."""
-        params = self.stage_params[stage]
-        
-        while self.retry_count < self.max_retries:
-            try:
-                response = self.openai_client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": self._get_system_prompt()},
-                        {"role": "user", "content": self._get_stage_prompt(stage, context)}
-                    ],
-                    temperature=params["temperature"],
-                    top_p=params["top_p"]
-                )
-                
-                # Reset retry count on success
-                self.retry_count = 0
-                return response.choices[0].message.content
-                
-            except openai.RateLimitError:
-                self.retry_count += 1
-                if self.retry_count < self.max_retries:
-                    wait_time = 2 ** self.retry_count  # Exponential backoff
-                    print(f"Rate limit hit, waiting {wait_time} seconds...")
-                    time.sleep(wait_time)
-                else:
-                    raise Exception("Max retries exceeded for rate limit")
-                    
-            except Exception as e:
-                print(f"Error in {stage} stage: {e}")
-                raise
-    
     def generate_test_with_msp(self, file_path: Path) -> str:
-        """Generate tests using the 5-stage MSPP approach with error handling."""
+        """Generate tests using single-call MSPP approach."""
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
             
         try:
-            # Stage 1: Context Establishment
+            # Establish context (same as before)
             context = self._establish_context(file_path)
-            context_response = self._call_ai("context_establishment", context)
             
-            # Stage 2: Test Structure Generation
-            structure_context = {**context, "current_structure": ""}
-            structure_response = self._call_ai("test_structure", structure_context)
+            # Single API call with multi-stage prompt
+            prompt = self._create_mspp_prompt(context)
             
-            # Stage 3: Test Logic Implementation
-            logic_context = {**context, "current_logic": structure_response}
-            logic_response = self._call_ai("test_logic", logic_context)
+            response = self.openai_client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": self._get_system_prompt()},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                top_p=0.95
+            )
             
-            # Stage 4: Refinement and Optimization
-            refinement_context = {**context, "current_implementation": logic_response}
-            refinement_response = self._call_ai("refinement", refinement_context)
-            
-            # Stage 5: Validation and Integration
-            validation_context = {**context, "current_code": refinement_response}
-            final_response = self._call_ai("validation", validation_context)
-            
-            return self._clean_generated_code(final_response)
+            generated_code = response.choices[0].message.content
+            return self._clean_generated_code(generated_code)
             
         except Exception as e:
             print(f"Error generating tests for {file_path}: {e}")
             return ""
     
-    def _establish_context(self, file_path: Path) -> dict:
-        """Establish the initial context for test generation."""
-        # Read source code
-        with open(file_path, 'r', encoding='utf-8') as f:
-            source_code = f.read()
-        
-        # Set module name and test file path
-        self.module_name = self._get_module_name(file_path)
-        self.test_file_path = self._get_test_path(file_path)
-        
-        # Extract information
-        uncovered_functions = self._extract_uncovered_functions(source_code)
-        used_libraries = self._identify_used_libraries(source_code)
-        
-        # Find and extract model reference files
-        model_reference_files = self.find_model_references(file_path)
-        enum_reference_files = self.find_enum_references(file_path)
-        all_reference_files = list(set(model_reference_files + enum_reference_files))
-        
-        model_reference_code = ""
-        if all_reference_files:
-            model_reference_code = "\nMODELS AND TYPES:\n"
-            for ref_file in all_reference_files:
-                model_definitions = self.extract_model_definitions(ref_file)
-                if model_definitions:
-                    model_reference_code += f"\n# From {ref_file}\n```python\n{model_definitions}\n```\n"
-        
-        # Extract function details
-        function_details = self._extract_detailed_function_info(uncovered_functions)
-        
-        return {
-            "file_path": str(file_path),
-            "module_name": self.module_name,
-            "test_file_path": str(self.test_file_path),
-            "source_code": source_code,
-            "model_reference_code": model_reference_code,
-            "function_details": function_details,
-            "libraries": ", ".join(used_libraries)
-        }
-    
-    def _get_stage_prompt(self, stage: str, context: dict) -> str:
-        """Get the appropriate prompt for each MSPP stage."""
-        prompts = {
-            "context_establishment": """You are an expert Python test engineer. Analyze the following codebase structure and module relationships to establish testing context.
+    def _create_mspp_prompt(self, context: dict) -> str:
+        """Create comprehensive MSPP prompt in single call."""
+        return f"""Generate complete pytest tests using Multi-Stage Prompt Processing approach.
 
+STAGE 1 - CONTEXT ESTABLISHMENT:
 MODULE INFORMATION:
-- File: {file_path}
-- Module path: {module_name}
-- Test file path: {test_file_path}
+- File: {context['file_path']}
+- Module path: {context['module_name']}
+- Test file path: {context['test_file_path']}
 
 SOURCE CODE:
 ```python
-{source_code}
+{context['source_code']}
 ```
 
-MODELS AND TYPES:
-{model_reference_code}
+{context['model_reference_code']}
 
 FUNCTIONS REQUIRING TESTS:
-{function_details}
+{context['function_details']}
 
 LIBRARY CONTEXT:
-- Used libraries: {libraries}
+- Used libraries: {context['libraries']}
 
-Provide a detailed analysis of the testing requirements and strategy.""",
+STAGE 2 - TEST STRUCTURE DESIGN:
+Design the test structure including:
+✓ Framework selection (pytest)
+✓ Test skeleton with appropriate fixtures
+✓ Mock object initialization patterns  
+✓ Test class organization
+✓ Import statements and dependencies
 
-            "test_structure": """Based on the established context, generate the test structure including:
-1. Framework selection (pytest)
-2. Test skeleton with appropriate fixtures
-3. Mock object initialization patterns
-4. Test class organization
+STAGE 3 - TEST LOGIC IMPLEMENTATION:
+Implement comprehensive test logic:
+✓ Assertion strategies for all scenarios
+✓ Edge case handling and error conditions
+✓ Async pattern implementation (if needed)
+✓ Mock behavior definition and setup
+✓ Parameter validation testing
 
-Current test structure:
-```python
-{current_structure}
-```
+STAGE 4 - REFINEMENT & OPTIMIZATION:
+Apply refinement techniques:
+✓ Error detection and correction
+✓ Test optimization for maintainability
+✓ Coverage maximization strategies
+✓ Code quality improvements
+✓ Performance considerations
 
-Generate the complete test structure following best practices.""",
+STAGE 5 - VALIDATION & INTEGRATION:
+Final validation steps:
+✓ Syntax validation
+✓ Quality checks
+✓ Integration readiness
+✓ Proper documentation
+✓ Best practices compliance
 
-            "test_logic": """Implement the test logic for the following structure:
-1. Assertion strategies
-2. Edge case handling
-3. Async pattern implementation
-4. Mock behavior definition
+REQUIREMENTS:
 
-Current test logic:
-```python
-{current_logic}
-```
+## MODEL SETUP
+- Include EVERY field when initializing models (required and optional)
+- Verify field names exist in actual model definition (case-sensitive)
+- Ensure correct model class is used when similar names exist
+- Match exact field types and constraints from specifications
 
-Generate comprehensive test logic that covers all scenarios.""",
+## MOCKING STRATEGY
+- Import Mock/AsyncMock from unittest.mock
+- Set return_value/side_effect BEFORE using mocks
+- Use side_effect with exception instances (not classes)
+- For DNS testing:
+  - Always mock DNSResolver.query with proper SRV records
+  - Ensure DNS mocks are set up BEFORE HTTP client creation
+  - Use consistent hostnames between DNS and HTTP mocks
 
-            "refinement": """Refine and optimize the test implementation:
-1. Error detection and correction
-2. Test optimization for maintainability
-3. Coverage maximization
-4. Code quality improvements
+## ASYNC HANDLING
+- Use pytest.mark.asyncio for tests with await expressions
+- Always await async calls (including mocked functions)
+- Properly configure AsyncMock with awaitable return values
+- Handle async context managers and iterators correctly
 
-Current implementation:
-```python
-{current_implementation}
-```
+## VALIDATION APPROACH
+- For URLs: Use unittest.mock.ANY for parameters or str(url) for exact matching
+- For collections: Avoid index-based assertions, find by key/property instead
+- For API responses: Test structure and types rather than exact values
+- Use set comparisons for unordered collections
+- Test pagination with both single and multi-page scenarios
 
-Provide optimized test code that addresses all issues.""",
+## PYTEST PRACTICES
+- Create appropriately scoped fixtures
+- Use parametrize for testing variations
+- Test exceptions with pytest.raises contextmanager
+- Group related tests in classes when logical
 
-            "validation": """Perform final validation and integration:
-1. Syntax validation
-2. Quality checks
-3. Integration readiness
-4. Documentation
-
-Current test code:
-```python
-{current_code}
-```
-
-Provide the final, production-ready test code with documentation."""
-        }
-        
-        return prompts[stage].format(**context)
+Return ONLY the final, production-ready pytest code. No explanations, no markdown blocks, just pure Python code that can be immediately executed."""
     
     def _get_system_prompt(self) -> str:
         """Get system prompt for the AI model."""
@@ -1210,431 +1135,45 @@ Provide the final, production-ready test code with documentation."""
         
         return files_to_test
 
-    def _get_function_args(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> List[Dict]:
-        """Extract function arguments with their types and defaults."""
-        args = []
+    def _establish_context(self, file_path: Path) -> dict:
+        """Establish the initial context for test generation."""
+        # Read source code
+        with open(file_path, 'r', encoding='utf-8') as f:
+            source_code = f.read()
         
-        # Regular arguments
-        for i, arg in enumerate(node.args.args):
-            arg_info = {
-                "name": arg.arg,
-                "type": ast.unparse(arg.annotation) if arg.annotation else None,
-                "default": None
-            }
-            
-            # Check for default values
-            defaults_start = len(node.args.args) - len(node.args.defaults)
-            if i >= defaults_start:
-                default_idx = i - defaults_start
-                arg_info["default"] = ast.unparse(node.args.defaults[default_idx])
-            
-            args.append(arg_info)
+        # Set module name and test file path
+        self.module_name = self._get_module_name(file_path)
+        self.test_file_path = self._get_test_path(file_path)
         
-        # *args
-        if node.args.vararg:
-            args.append({
-                "name": f"*{node.args.vararg.arg}",
-                "type": "*args",
-                "default": None
-            })
+        # Extract information
+        uncovered_functions = self._extract_uncovered_functions(source_code)
+        used_libraries = self._identify_used_libraries(source_code)
         
-        # **kwargs
-        if node.args.kwarg:
-            args.append({
-                "name": f"**{node.args.kwarg.arg}",
-                "type": "**kwargs",
-                "default": None
-            })
+        # Find and extract model reference files
+        model_reference_files = self.find_model_references(file_path)
+        enum_reference_files = self.find_enum_references(file_path)
+        all_reference_files = list(set(model_reference_files + enum_reference_files))
         
-        return args
-    
-    def _extract_return_type(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> Optional[str]:
-        """Extract return type annotation from function definition."""
-        if node.returns:
-            return ast.unparse(node.returns)
-        return None
-    
-    def _extract_uncovered_functions(self, source_code: str) -> Dict[str, Dict]:
-        """Extract functions that need testing from source code."""
-        uncovered_functions = {}
+        model_reference_code = ""
+        if all_reference_files:
+            model_reference_code = "\nMODELS AND TYPES:\n"
+            for ref_file in all_reference_files:
+                model_definitions = self.extract_model_definitions(ref_file)
+                if model_definitions:
+                    model_reference_code += f"\n# From {ref_file}\n```python\n{model_definitions}\n```\n"
         
-        try:
-            tree = ast.parse(source_code)
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    func_name = node.name
-                    
-                    # Skip private functions (but keep dunder methods)
-                    if func_name.startswith("_") and not (func_name.startswith("__") and func_name.endswith("__")):
-                        continue
-                    
-                    uncovered_functions[func_name] = {
-                        "args": self._get_function_args(node),
-                        "is_async": isinstance(node, ast.AsyncFunctionDef),
-                        "docstring": ast.get_docstring(node) or "",
-                        "return_type": self._extract_return_type(node),
-                        "line_no": node.lineno
-                    }
-                
-                elif isinstance(node, ast.ClassDef):
-                    class_name = node.name
-                    for method in node.body:
-                        if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                            method_name = method.name
-                            
-                            # Skip private methods
-                            if method_name.startswith("_") and not (method_name.startswith("__") and method_name.endswith("__")):
-                                continue
-                            
-                            full_name = f"{class_name}.{method_name}"
-                            uncovered_functions[full_name] = {
-                                "args": self._get_function_args(method),
-                                "is_async": isinstance(method, ast.AsyncFunctionDef),
-                                "docstring": ast.get_docstring(method) or "",
-                                "class_name": class_name,
-                                "return_type": self._extract_return_type(method),
-                                "line_no": method.lineno
-                            }
-        except Exception as e:
-            print(f"Error extracting functions: {e}")
+        # Extract function details
+        function_details = self._extract_detailed_function_info(uncovered_functions)
         
-        return uncovered_functions
-    
-    def _identify_used_libraries(self, source_code: str) -> List[str]:
-        """Identify external libraries used in the module."""
-        libraries = set()
-        
-        # Standard library modules that shouldn't be considered as external
-        stdlib_modules = {'os', 'sys', 'json', 're', 'pathlib', 'datetime', 'collections', 'typing', 
-                        'functools', 'itertools', 'asyncio', 'logging', 'unittest', 'dataclasses'}
-        
-        try:
-            tree = ast.parse(source_code)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for name in node.names:
-                        base_module = name.name.split('.')[0]
-                        if base_module not in stdlib_modules:
-                            libraries.add(base_module)
-                
-                elif isinstance(node, ast.ImportFrom):
-                    if node.module:
-                        base_module = node.module.split('.')[0]
-                        if base_module not in stdlib_modules:
-                            libraries.add(base_module)
-        except Exception as e:
-            print(f"Error identifying libraries: {e}")
-        
-        return sorted(list(libraries))
-    
-    def _extract_detailed_function_info(self, uncovered_functions: Dict[str, Dict]) -> str:
-        """Create detailed text description of functions needing tests."""
-        details = []
-        
-        for func_name, info in uncovered_functions.items():
-            desc = f"\nFunction: {func_name}"
-            
-            if info.get("is_async"):
-                desc += " (async)"
-            
-            desc += f"\nLine: {info.get('line_no', 'unknown')}"
-            
-            # Arguments
-            args = info.get("args", [])
-            if args:
-                desc += "\nArguments:"
-                for arg in args:
-                    arg_desc = f"  - {arg['name']}"
-                    if arg.get('type'):
-                        arg_desc += f": {arg['type']}"
-                    if arg.get('default'):
-                        arg_desc += f" = {arg['default']}"
-                    desc += f"\n{arg_desc}"
-            
-            # Return type
-            if info.get("return_type"):
-                desc += f"\nReturns: {info['return_type']}"
-            
-            # Docstring
-            if info.get("docstring"):
-                desc += f"\nDocstring: {info['docstring']}"
-            
-            details.append(desc)
-        
-        return "\n".join(details)
-    
-    def find_model_references(self, source_file: Path) -> List[Path]:
-        """Find model definition files referenced by the source file."""
-        model_files = set()
-        source_dir = source_file.parent
-        project_root = self._find_project_root(source_file)
-        
-        # Read the source file to extract imports
-        try:
-            with open(source_file, 'r', encoding='utf-8') as f:
-                source_code = f.read()
-        except Exception as e:
-            print(f"Error reading {source_file}: {e}")
-            return []
-        
-        # Extract imports from the source code
-        imports = self._extract_imports(source_code)
-        
-        # Check common model file locations
-        potential_paths = []
-        
-        # 1. Directly imported modules
-        for module_path in imports:
-            # Convert module path to file path
-            parts = module_path.split('.')
-            
-            # Try absolute path from project root
-            file_path = project_root.joinpath(*parts).with_suffix('.py')
-            if file_path.exists():
-                potential_paths.append(file_path)
-            
-            # Try relative path from source directory
-            file_path = source_dir.joinpath(*parts).with_suffix('.py')
-            if file_path.exists():
-                potential_paths.append(file_path)
-        
-        # 2. Common model files in the same package
-        common_model_files = ['const.py','models.py', 'schemas.py', 'entities.py', 'types.py', 'dataclasses.py']
-        for model_file in common_model_files:
-            file_path = source_dir / model_file
-            if file_path.exists():
-                potential_paths.append(file_path)
-        
-        # 3. Check if there's a models directory
-        model_dirs = [source_dir / 'models', project_root / 'models', 
-                      source_dir / 'schemas', project_root / 'schemas']
-        
-        for model_dir in model_dirs:
-            if model_dir.exists() and model_dir.is_dir():
-                for file_path in model_dir.glob('**/*.py'):
-                    potential_paths.append(file_path)
-        
-        # Analyze each potential file to check if it contains model definitions
-        for file_path in potential_paths:
-            if self._contains_model_definitions(file_path):
-                model_files.add(file_path)
-        
-        return list(model_files)
-    
-    def _find_project_root(self, file_path: Path) -> Path:
-        """Find the project root directory."""
-        current_path = file_path.parent.absolute()
-        
-        # Look for common project root indicators
-        indicators = ['pyproject.toml', 'setup.py', '.git', 'requirements.txt']
-        
-        while current_path != current_path.parent:
-            for indicator in indicators:
-                if (current_path / indicator).exists():
-                    return current_path
-            current_path = current_path.parent
-        
-        # If no root found, return the current directory
-        return Path.cwd()
-    
-    def _extract_imports(self, source_code: str) -> List[str]:
-        """Extract imported modules from source code."""
-        imports = []
-        
-        try:
-            tree = ast.parse(source_code)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for name in node.names:
-                        imports.append(name.name)
-                
-                elif isinstance(node, ast.ImportFrom):
-                    if node.module:
-                        imports.append(node.module)
-        except Exception as e:
-            print(f"Error extracting imports: {e}")
-        
-        return imports
-    
-    def _contains_model_definitions(self, file_path: Path) -> bool:
-        """Check if a file contains model class definitions or enums."""
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            # Quick check for common model or enum indicators
-            indicators = [
-                'class', '@dataclass', 'mashumaro', 'BaseModel', 
-                'DataClassJSONMixin', 'SerializationMixin', 'field',
-                'Enum', 'enum', 'IntEnum', 'StrEnum', '(str, Enum)'
-            ]
-            
-            if not any(indicator in content for indicator in indicators):
-                return False
-            
-            # More detailed AST analysis
-            tree = ast.parse(content)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ClassDef):
-                    # Check decorators
-                    for decorator in node.decorator_list:
-                        decorator_str = ast.unparse(decorator)
-                        if any(model_dec in decorator_str for model_dec in ['dataclass', 'BaseModel']):
-                            return True
-                    
-                    # Check base classes for model and enum patterns
-                    for base in node.bases:
-                        base_str = ast.unparse(base)
-                        if any(model_base in base_str for model_base in 
-                            ['DataClassJSONMixin', 'BaseModel', 'SerializationMixin']):
-                            return True
-                        # Add explicit Enum detection
-                        if any(enum_base in base_str for enum_base in 
-                            ['Enum', 'IntEnum', 'StrEnum', 'str, Enum']):
-                            return True
-                    
-                    # Check for model-like structure (many typed attributes)
-                    typed_attrs = sum(1 for item in node.body 
-                                    if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name))
-                    if typed_attrs >= 3:  # If class has several typed attributes, it's likely a model
-                        return True
-                    
-                    # Check for enum-like structure (many class variables with values)
-                    enum_attrs = sum(1 for item in node.body 
-                                if isinstance(item, ast.Assign) and 
-                                any(isinstance(target, ast.Name) for target in item.targets))
-                    if enum_attrs >= 3:  # If class has several constant assignments, it might be an enum
-                        return True
-            
-            return False
-        except Exception as e:
-            print(f"Error analyzing {file_path}: {e}")
-            return False
-    
-    def extract_model_definitions(self, file_path: Path) -> str:
-        """Extract model class and enum definitions from a file."""
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            tree = ast.parse(content)
-            model_definitions = []
-            
-            # Get imports that might be needed for the models
-            imports = []
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.Import, ast.ImportFrom)):
-                    imports.append(ast.unparse(node))
-            
-            # Extract top-level variables that might be needed for enums
-            top_level_vars = []
-            for node in ast.iter_child_nodes(tree):
-                if isinstance(node, ast.Assign):
-                    top_level_vars.append(ast.unparse(node))
-            
-            # Extract class definitions that appear to be models or enums
-            for node in ast.iter_child_nodes(tree):
-                if isinstance(node, ast.ClassDef):
-                    # Check if it's a model class or enum
-                    is_model_or_enum = False
-                    
-                    # Check decorators
-                    for decorator in node.decorator_list:
-                        decorator_str = ast.unparse(decorator)
-                        if any(dec in decorator_str for dec in ['enum', 'dataclass', 'BaseModel']):
-                            is_model_or_enum = True
-                            break
-                    
-                    # Check base classes
-                    if not is_model_or_enum:
-                        for base in node.bases:
-                            base_str = ast.unparse(base)
-                            # Check for model base classes
-                            if any(model_base in base_str for model_base in 
-                                ['DataClassJSONMixin', 'BaseModel', 'SerializationMixin']):
-                                is_model_or_enum = True
-                                break
-                            # Check for enum base classes
-                            if any(enum_base in base_str for enum_base in 
-                                ['Enum', 'IntEnum', 'StrEnum']) or 'str, Enum' in base_str:
-                                is_model_or_enum = True
-                                break
-                    
-                    # Check for model-like structure
-                    if not is_model_or_enum:
-                        typed_attrs = sum(1 for item in node.body 
-                                        if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name))
-                        if typed_attrs >= 3:  # If class has several typed attributes, it's likely a model
-                            is_model_or_enum = True
-                    
-                    # Check for enum-like structure
-                    if not is_model_or_enum:
-                        enum_attrs = sum(1 for item in node.body 
-                                    if isinstance(item, ast.Assign) and 
-                                    any(isinstance(target, ast.Name) for target in item.targets))
-                        if enum_attrs >= 3:  # If class has several constant assignments, it might be an enum
-                            is_model_or_enum = True
-                    
-                    if is_model_or_enum:
-                        model_definitions.append(ast.unparse(node))
-            
-            # Combine imports, top-level vars, and model definitions
-            unique_imports = list(dict.fromkeys(imports))  # Remove duplicates while preserving order
-            result_parts = unique_imports + [""] + top_level_vars + [""] + model_definitions
-            model_code = "\n".join(filter(None, result_parts))  # filter removes empty strings
-            
-            return model_code
-        except Exception as e:
-            print(f"Error extracting definitions from {file_path}: {e}")
-            return ""
-    
-    def find_enum_references(self, source_file: Path) -> List[Path]:
-        """Find enum definition files referenced by the source file."""
-        enum_files = set()
-        source_dir = source_file.parent
-        project_root = self._find_project_root(source_file)
-        
-        # First, check if there's a const.py in the same directory
-        const_file = source_dir / 'const.py'
-        if const_file.exists():
-            enum_files.add(const_file)
-        
-        # Read the source file to extract imports
-        try:
-            with open(source_file, 'r', encoding='utf-8') as f:
-                source_code = f.read()
-        except Exception as e:
-            print(f"Error reading {source_file}: {e}")
-            return []
-        
-        # Extract imports from the source code
-        imports = self._extract_imports(source_code)
-        
-        # Check for potential enum imports
-        for module_path in imports:
-            # Check if this import might be an enum module
-            if 'const' in module_path.lower() or 'enum' in module_path.lower():
-                # Convert module path to file path
-                parts = module_path.split('.')
-                
-                # Try absolute path from project root
-                file_path = project_root.joinpath(*parts).with_suffix('.py')
-                if file_path.exists():
-                    enum_files.add(file_path)
-                
-                # Try relative path from source directory
-                file_path = source_dir.joinpath(*parts).with_suffix('.py')
-                if file_path.exists():
-                    enum_files.add(file_path)
-        
-        # Check common enum file names
-        common_enum_files = ['enums.py', 'constants.py', 'consts.py', 'types.py']
-        for enum_file in common_enum_files:
-            file_path = source_dir / enum_file
-            if file_path.exists():
-                enum_files.add(file_path)
-        
-        return list(enum_files)
+        return {
+            "file_path": str(file_path),
+            "module_name": self.module_name,
+            "test_file_path": str(self.test_file_path),
+            "source_code": source_code,
+            "model_reference_code": model_reference_code,
+            "function_details": function_details,
+            "libraries": ", ".join(used_libraries)
+        }
 
 
 def main():
