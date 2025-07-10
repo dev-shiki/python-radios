@@ -123,7 +123,7 @@ class UniversalTestGenerator:
             return ""
         
         # Create prompt with enhanced analysis
-        prompt = self._create_prompt(file_path, source_code)
+        prompt = self.create_prompt(file_path, source_code)
         
         # Generate tests
         try:
@@ -206,7 +206,6 @@ class UniversalTestGenerator:
         code = code.strip()
         
         # Check if first non-empty line looks like an import statement or function/class definition
-        # If not, we might have additional text before the actual code
         lines = code.split('\n')
         non_empty_lines = [line for line in lines if line.strip()]
         
@@ -248,455 +247,363 @@ class UniversalTestGenerator:
         
         parts = list(rel_path.parts)
         
-        # Handle src directory
-        if parts and parts[0] == "src":
-            parts.pop(0)
-        
         # Remove .py extension
-        if parts and parts[-1].endswith('.py'):
-            parts[-1] = parts[-1][:-3]  # Remove .py extension
+        if parts[-1].endswith('.py'):
+            parts[-1] = parts[-1][:-3]
         
-        return ".".join(parts)
-
+        # Convert to module notation
+        return '.'.join(parts)
+    
     def _get_function_args(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> List[Dict]:
-        """Extract function arguments with their types and defaults."""
+        """Extract function arguments with types and defaults."""
         args = []
         
         # Regular arguments
         for i, arg in enumerate(node.args.args):
             arg_info = {
-                "name": arg.arg,
-                "type": ast.unparse(arg.annotation) if arg.annotation else None,
-                "default": None
+                'name': arg.arg,
+                'annotation': ast.unparse(arg.annotation) if arg.annotation else None,
+                'default': None
             }
             
-            # Check for default values
-            defaults_start = len(node.args.args) - len(node.args.defaults)
-            if i >= defaults_start:
-                default_idx = i - defaults_start
-                arg_info["default"] = ast.unparse(node.args.defaults[default_idx])
+            # Check for defaults (defaults are for the last N args)
+            defaults = node.args.defaults
+            if defaults and i >= len(node.args.args) - len(defaults):
+                default_idx = i - (len(node.args.args) - len(defaults))
+                arg_info['default'] = ast.unparse(defaults[default_idx])
             
             args.append(arg_info)
         
-        # *args
-        if node.args.vararg:
-            args.append({
-                "name": f"*{node.args.vararg.arg}",
-                "type": "*args",
-                "default": None
-            })
-        
-        # **kwargs
-        if node.args.kwarg:
-            args.append({
-                "name": f"**{node.args.kwarg.arg}",
-                "type": "**kwargs",
-                "default": None
-            })
+        # Keyword-only arguments
+        for i, arg in enumerate(node.args.kwonlyargs):
+            arg_info = {
+                'name': arg.arg,
+                'annotation': ast.unparse(arg.annotation) if arg.annotation else None,
+                'default': None
+            }
+            
+            # Check for kw_defaults
+            if node.args.kw_defaults and i < len(node.args.kw_defaults):
+                if node.args.kw_defaults[i] is not None:
+                    arg_info['default'] = ast.unparse(node.args.kw_defaults[i])
+            
+            args.append(arg_info)
         
         return args
-
+    
     def _extract_return_type(self, node: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> Optional[str]:
-        """Extract return type annotation from function definition."""
+        """Extract return type annotation."""
         if node.returns:
             return ast.unparse(node.returns)
         return None
-
+    
     def _extract_uncovered_functions(self, source_code: str) -> Dict[str, Dict]:
-        """Extract functions that need testing from source code."""
-        uncovered_functions = {}
-        
+        """Extract detailed information about functions/methods that need testing."""
         try:
             tree = ast.parse(source_code)
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    func_name = node.name
-                    
-                    # Skip private functions (but keep dunder methods)
-                    if func_name.startswith("_") and not (func_name.startswith("__") and func_name.endswith("__")):
-                        continue
-                    
-                    uncovered_functions[func_name] = {
-                        "args": self._get_function_args(node),
-                        "is_async": isinstance(node, ast.AsyncFunctionDef),
-                        "docstring": ast.get_docstring(node) or "",
-                        "return_type": self._extract_return_type(node),
-                        "line_no": node.lineno
-                    }
-                
-                elif isinstance(node, ast.ClassDef):
-                    class_name = node.name
-                    for method in node.body:
-                        if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                            method_name = method.name
-                            
-                            # Skip private methods
-                            if method_name.startswith("_") and not (method_name.startswith("__") and method_name.endswith("__")):
-                                continue
-                            
-                            full_name = f"{class_name}.{method_name}"
-                            uncovered_functions[full_name] = {
-                                "args": self._get_function_args(method),
-                                "is_async": isinstance(method, ast.AsyncFunctionDef),
-                                "docstring": ast.get_docstring(method) or "",
-                                "class_name": class_name,
-                                "return_type": self._extract_return_type(method),
-                                "line_no": method.lineno
-                            }
-        except Exception as e:
-            print(f"Error extracting functions: {e}")
+        except SyntaxError:
+            return {}
         
-        return uncovered_functions
-
+        functions = {}
+        
+        class FunctionVisitor(ast.NodeVisitor):
+            def __init__(self):
+                self.class_name = None
+            
+            def visit_ClassDef(self, node):
+                old_class = self.class_name
+                self.class_name = node.name
+                self.generic_visit(node)
+                self.class_name = old_class
+            
+            def visit_FunctionDef(self, node):
+                self._process_function(node)
+                self.generic_visit(node)
+            
+            def visit_AsyncFunctionDef(self, node):
+                self._process_function(node)
+                self.generic_visit(node)
+            
+            def _process_function(self, node):
+                full_name = f"{self.class_name}.{node.name}" if self.class_name else node.name
+                
+                # Skip private methods and special methods for now
+                if node.name.startswith('_') and not node.name.startswith('__'):
+                    return
+                
+                # Extract docstring
+                docstring = ast.get_docstring(node)
+                
+                functions[full_name] = {
+                    'name': node.name,
+                    'class_name': self.class_name,
+                    'is_async': isinstance(node, ast.AsyncFunctionDef),
+                    'args': self._get_function_args(node),
+                    'return_type': self._extract_return_type(node),
+                    'docstring': docstring,
+                    'decorators': [ast.unparse(dec) for dec in node.decorator_list],
+                    'line_number': node.lineno
+                }
+        
+        visitor = FunctionVisitor()
+        visitor.visit(tree)
+        
+        return functions
+    
     def _identify_used_libraries(self, source_code: str) -> List[str]:
-        """Identify external libraries used in the module."""
+        """Identify libraries used in the source code."""
         libraries = set()
         
-        # Standard library modules that shouldn't be considered as external
-        stdlib_modules = {'os', 'sys', 'json', 're', 'pathlib', 'datetime', 'collections', 'typing', 
-                        'functools', 'itertools', 'asyncio', 'logging', 'unittest', 'dataclasses'}
-        
         try:
             tree = ast.parse(source_code)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for name in node.names:
-                        base_module = name.name.split('.')[0]
-                        if base_module not in stdlib_modules:
-                            libraries.add(base_module)
-                
-                elif isinstance(node, ast.ImportFrom):
-                    if node.module:
-                        base_module = node.module.split('.')[0]
-                        if base_module not in stdlib_modules:
-                            libraries.add(base_module)
-        except Exception as e:
-            print(f"Error identifying libraries: {e}")
+        except SyntaxError:
+            return []
         
-        return sorted(list(libraries))
-
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    libraries.add(alias.name.split('.')[0])
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    libraries.add(node.module.split('.')[0])
+        
+        # Common async and testing related libraries
+        common_async_libs = ['asyncio', 'aiohttp', 'aiofiles', 'asyncpg', 'motor']
+        testing_libs = ['pytest', 'unittest', 'mock']
+        
+        # Filter to commonly used libraries that affect testing
+        relevant_libs = [lib for lib in libraries 
+                        if lib in common_async_libs + testing_libs + 
+                        ['requests', 'httpx', 'fastapi', 'flask', 'django', 'sqlalchemy', 'pydantic']]
+        
+        return relevant_libs
+    
     def _extract_detailed_function_info(self, uncovered_functions: Dict[str, Dict]) -> str:
-        """Create detailed text description of functions needing tests."""
-        details = []
+        """Extract detailed information about functions for the prompt."""
+        if not uncovered_functions:
+            return "No specific functions identified - generate comprehensive tests for all public methods."
         
-        for func_name, info in uncovered_functions.items():
-            desc = f"\nFunction: {func_name}"
+        details = []
+        for func_name, func_info in uncovered_functions.items():
+            args_str = ", ".join([
+                f"{arg['name']}: {arg['annotation'] or 'Any'}" + 
+                (f" = {arg['default']}" if arg['default'] else "")
+                for arg in func_info['args']
+            ])
             
-            if info.get("is_async"):
-                desc += " (async)"
+            return_type = func_info['return_type'] or 'None'
+            async_marker = "async " if func_info['is_async'] else ""
+            class_prefix = f"Class: {func_info['class_name']}, " if func_info['class_name'] else ""
             
-            desc += f"\nLine: {info.get('line_no', 'unknown')}"
-            
-            # Arguments
-            args = info.get("args", [])
-            if args:
-                desc += "\nArguments:"
-                for arg in args:
-                    arg_desc = f"  - {arg['name']}"
-                    if arg.get('type'):
-                        arg_desc += f": {arg['type']}"
-                    if arg.get('default'):
-                        arg_desc += f" = {arg['default']}"
-                    desc += f"\n{arg_desc}"
-            
-            # Return type
-            if info.get("return_type"):
-                desc += f"\nReturns: {info['return_type']}"
-            
-            # Docstring
-            if info.get("docstring"):
-                desc += f"\nDocstring: {info['docstring']}"
-            
-            details.append(desc)
+            details.append(
+                f"- {class_prefix}{async_marker}def {func_info['name']}({args_str}) -> {return_type}\n"
+                f"  Line: {func_info['line_number']}\n" +
+                (f"  Docstring: {func_info['docstring'][:100]}..." if func_info['docstring'] else "")
+            )
         
         return "\n".join(details)
-
+    
     def find_model_references(self, source_file: Path) -> List[Path]:
-        """
-        Find model definition files referenced by the source file.
-        
-        Args:
-            source_file: Path to the source file being tested
-            
-        Returns:
-            List of paths to model definition files
-        """
+        """Find model reference files in the project."""
         model_files = set()
-        source_dir = source_file.parent
-        project_root = self._find_project_root(source_file)
+        source_dir = self._find_project_root(source_file)
         
-        # Read the source file to extract imports
+        # Read source code to find imports
         try:
             with open(source_file, 'r', encoding='utf-8') as f:
                 source_code = f.read()
-        except Exception as e:
-            print(f"Error reading {source_file}: {e}")
+        except Exception:
             return []
         
-        # Extract imports from the source code
+        # Extract imports
         imports = self._extract_imports(source_code)
         
-        # Check common model file locations
-        potential_paths = []
-        
-        # 1. Directly imported modules
-        for module_path in imports:
-            # Convert module path to file path
-            parts = module_path.split('.')
+        # For each import, try to find the corresponding file
+        for import_name in imports:
+            # Skip standard library and third-party imports
+            if import_name in ['os', 'sys', 'json', 'time', 'datetime', 'typing', 'pathlib',
+                             'asyncio', 'aiohttp', 'requests', 'pydantic', 'dataclasses']:
+                continue
             
-            # Try absolute path from project root
-            file_path = project_root.joinpath(*parts).with_suffix('.py')
-            if file_path.exists():
-                potential_paths.append(file_path)
+            # Convert import to file path
+            import_parts = import_name.split('.')
             
-            # Try relative path from source directory
-            file_path = source_dir.joinpath(*parts).with_suffix('.py')
-            if file_path.exists():
-                potential_paths.append(file_path)
+            # Try different combinations
+            for i in range(len(import_parts), 0, -1):
+                parts = import_parts[:i]
+                
+                # Try as package/__init__.py
+                package_path = source_dir.joinpath(*parts) / '__init__.py'
+                if package_path.exists() and self._contains_model_definitions(package_path):
+                    model_files.add(package_path)
+                
+                # Try as module.py
+                file_path = source_dir.joinpath(*parts).with_suffix('.py')
+                if file_path.exists() and self._contains_model_definitions(file_path):
+                    model_files.add(file_path)
         
-        # 2. Common model files in the same package
-        common_model_files = ['const.py','models.py', 'schemas.py', 'entities.py', 'types.py', 'dataclasses.py']
+        # Also check common model file names in the same directory
+        source_parent = source_file.parent
+        common_model_files = ['models.py', 'model.py', 'schemas.py', 'schema.py', 'types.py']
         for model_file in common_model_files:
-            file_path = source_dir / model_file
-            if file_path.exists():
-                potential_paths.append(file_path)
-        
-        # 3. Check if there's a models directory
-        model_dirs = [source_dir / 'models', project_root / 'models', 
-                      source_dir / 'schemas', project_root / 'schemas']
-        
-        for model_dir in model_dirs:
-            if model_dir.exists() and model_dir.is_dir():
-                for file_path in model_dir.glob('**/*.py'):
-                    potential_paths.append(file_path)
-        
-        # Analyze each potential file to check if it contains model definitions
-        for file_path in potential_paths:
-            if self._contains_model_definitions(file_path):
+            file_path = source_parent / model_file
+            if file_path.exists() and file_path != source_file:
                 model_files.add(file_path)
         
+        # Check parent directories for models
+        current_dir = source_parent
+        for _ in range(3):  # Look up to 3 levels up
+            for model_file in common_model_files:
+                file_path = current_dir / model_file
+                if file_path.exists():
+                    model_files.add(file_path)
+            current_dir = current_dir.parent
+            if current_dir == source_dir:
+                break
+        
         return list(model_files)
-
+    
     def _find_project_root(self, file_path: Path) -> Path:
         """Find the project root directory."""
-        current_path = file_path.parent.absolute()
+        current = file_path.parent
         
         # Look for common project root indicators
-        indicators = ['pyproject.toml', 'setup.py', '.git', 'requirements.txt']
+        root_indicators = ['pyproject.toml', 'setup.py', 'requirements.txt', '.git', 'poetry.lock']
         
-        while current_path != current_path.parent:
-            for indicator in indicators:
-                if (current_path / indicator).exists():
-                    return current_path
-            current_path = current_path.parent
+        while current.parent != current:  # Not at filesystem root
+            if any((current / indicator).exists() for indicator in root_indicators):
+                return current
+            current = current.parent
         
-        # If no root found, return the current directory
-        return Path.cwd()
-
+        return file_path.parent
+    
     def _extract_imports(self, source_code: str) -> List[str]:
-        """Extract imported modules from source code."""
+        """Extract import statements from source code."""
         imports = []
-        
         try:
             tree = ast.parse(source_code)
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
-                    for name in node.names:
-                        imports.append(name.name)
-                
+                    for alias in node.names:
+                        imports.append(alias.name)
                 elif isinstance(node, ast.ImportFrom):
                     if node.module:
                         imports.append(node.module)
-        except Exception as e:
-            print(f"Error extracting imports: {e}")
-        
+        except SyntaxError:
+            pass
         return imports
-
+    
     def _contains_model_definitions(self, file_path: Path) -> bool:
-        """
-        Check if a file contains model class definitions or enums.
-        """
+        """Check if a file contains model definitions."""
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
-            # Quick check for common model or enum indicators
-            indicators = [
-                'class', '@dataclass', 'mashumaro', 'BaseModel', 
-                'DataClassJSONMixin', 'SerializationMixin', 'field',
-                'Enum', 'enum', 'IntEnum', 'StrEnum', '(str, Enum)'
+            # Simple heuristics for model definitions
+            model_indicators = [
+                'class.*BaseModel',
+                'class.*Model',
+                '@dataclass',
+                'class.*Schema',
+                'TypedDict',
+                'NamedTuple',
+                'Enum',
+                'dataclasses.dataclass',
+                'pydantic',
+                'from typing import',
+                'Union',
+                'Optional',
+                'List',
+                'Dict'
             ]
             
-            if not any(indicator in content for indicator in indicators):
-                return False
-            
-            # More detailed AST analysis
-            tree = ast.parse(content)
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ClassDef):
-                    # Check decorators
-                    for decorator in node.decorator_list:
-                        decorator_str = ast.unparse(decorator)
-                        if any(model_dec in decorator_str for model_dec in ['dataclass', 'BaseModel']):
-                            return True
+            for indicator in model_indicators:
+                if re.search(indicator, content, re.IGNORECASE):
+                    return True
                     
-                    # Check base classes for model and enum patterns
-                    for base in node.bases:
-                        base_str = ast.unparse(base)
-                        if any(model_base in base_str for model_base in 
-                            ['DataClassJSONMixin', 'BaseModel', 'SerializationMixin']):
-                            return True
-                        # Add explicit Enum detection
-                        if any(enum_base in base_str for enum_base in 
-                            ['Enum', 'IntEnum', 'StrEnum', 'str, Enum']):
-                            return True
-                    
-                    # Check for model-like structure (many typed attributes)
-                    typed_attrs = sum(1 for item in node.body 
-                                    if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name))
-                    if typed_attrs >= 3:  # If class has several typed attributes, it's likely a model
-                        return True
-                    
-                    # Check for enum-like structure (many class variables with values)
-                    enum_attrs = sum(1 for item in node.body 
-                                if isinstance(item, ast.Assign) and 
-                                any(isinstance(target, ast.Name) for target in item.targets))
-                    if enum_attrs >= 3:  # If class has several constant assignments, it might be an enum
-                        return True
-            
             return False
-        except Exception as e:
-            print(f"Error analyzing {file_path}: {e}")
+        except Exception:
             return False
-
+    
     def extract_model_definitions(self, file_path: Path) -> str:
-        """
-        Extract model class and enum definitions from a file.
-        
-        Args:
-            file_path: Path to the file
-            
-        Returns:
-            String containing model class and enum definitions
-        """
+        """Extract model definitions from a file."""
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
-            tree = ast.parse(content)
-            model_definitions = []
+            # Parse and extract class definitions
+            try:
+                tree = ast.parse(content)
+            except SyntaxError:
+                return ""
             
-            # Get imports that might be needed for the models
-            imports = []
+            model_code = []
+            
             for node in ast.walk(tree):
-                if isinstance(node, (ast.Import, ast.ImportFrom)):
-                    imports.append(ast.unparse(node))
-            
-            # Extract top-level variables that might be needed for enums
-            top_level_vars = []
-            for node in ast.iter_child_nodes(tree):
-                if isinstance(node, ast.Assign):
-                    top_level_vars.append(ast.unparse(node))
-            
-            # Extract class definitions that appear to be models or enums
-            for node in ast.iter_child_nodes(tree):
                 if isinstance(node, ast.ClassDef):
-                    # Check if it's a model class or enum
-                    is_model_or_enum = False
-                    
-                    # Check decorators
-                    for decorator in node.decorator_list:
-                        decorator_str = ast.unparse(decorator)
-                        if any(dec in decorator_str for dec in ['enum', 'dataclass', 'BaseModel']):
-                            is_model_or_enum = True
-                            break
-                    
-                    # Check base classes
-                    if not is_model_or_enum:
-                        for base in node.bases:
-                            base_str = ast.unparse(base)
-                            # Check for model base classes
-                            if any(model_base in base_str for model_base in 
-                                ['DataClassJSONMixin', 'BaseModel', 'SerializationMixin']):
-                                is_model_or_enum = True
-                                break
-                            # Check for enum base classes
-                            if any(enum_base in base_str for enum_base in 
-                                ['Enum', 'IntEnum', 'StrEnum']) or 'str, Enum' in base_str:
-                                is_model_or_enum = True
-                                break
-                    
-                    # Check for model-like structure
-                    if not is_model_or_enum:
-                        typed_attrs = sum(1 for item in node.body 
-                                        if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name))
-                        if typed_attrs >= 3:  # If class has several typed attributes, it's likely a model
-                            is_model_or_enum = True
-                    
-                    # Check for enum-like structure
-                    if not is_model_or_enum:
-                        enum_attrs = sum(1 for item in node.body 
-                                    if isinstance(item, ast.Assign) and 
-                                    any(isinstance(target, ast.Name) for target in item.targets))
-                        if enum_attrs >= 3:  # If class has several constant assignments, it might be an enum
-                            is_model_or_enum = True
-                    
-                    if is_model_or_enum:
-                        model_definitions.append(ast.unparse(node))
+                    # Check if it's likely a model class
+                    class_code = ast.get_source_segment(content, node)
+                    if class_code and any(keyword in class_code.lower() for keyword in 
+                                        ['basemodel', 'schema', 'dataclass', 'model', 'enum']):
+                        model_code.append(class_code)
+                
+                # Also extract TypedDict, NamedTuple, etc.
+                elif isinstance(node, ast.Assign):
+                    if hasattr(node, 'value') and isinstance(node.value, ast.Call):
+                        if hasattr(node.value.func, 'id'):
+                            if node.value.func.id in ['TypedDict', 'NamedTuple']:
+                                assign_code = ast.get_source_segment(content, node)
+                                if assign_code:
+                                    model_code.append(assign_code)
             
-            # Combine imports, top-level vars, and model definitions
-            unique_imports = list(dict.fromkeys(imports))  # Remove duplicates while preserving order
-            result_parts = unique_imports + [""] + top_level_vars + [""] + model_definitions
-            model_code = "\n".join(filter(None, result_parts))  # filter removes empty strings
+            # If no specific classes found, return imports and type hints
+            if not model_code:
+                lines = content.split('\n')
+                relevant_lines = []
+                for line in lines:
+                    if (line.strip().startswith('from typing') or 
+                        line.strip().startswith('import typing') or
+                        line.strip().startswith('from pydantic') or
+                        line.strip().startswith('import pydantic') or
+                        line.strip().startswith('from dataclasses') or
+                        'Union[' in line or 'Optional[' in line or 'List[' in line):
+                        relevant_lines.append(line)
+                
+                if relevant_lines:
+                    return '\n'.join(relevant_lines[:10])  # First 10 relevant lines
             
-            return model_code
+            return '\n\n'.join(model_code[:5])  # First 5 model definitions
+            
         except Exception as e:
-            print(f"Error extracting definitions from {file_path}: {e}")
-            return ""
-
+            return f"# Error reading {file_path}: {e}"
+    
     def find_enum_references(self, source_file: Path) -> List[Path]:
-        """
-        Find enum definition files referenced by the source file.
-        
-        Args:
-            source_file: Path to the source file being tested
-            
-        Returns:
-            List of paths to enum definition files
-        """
+        """Find enum reference files in the project."""
         enum_files = set()
-        source_dir = source_file.parent
-        project_root = self._find_project_root(source_file)
+        source_dir = self._find_project_root(source_file)
         
-        # First, check if there's a const.py in the same directory
-        const_file = source_dir / 'const.py'
-        if const_file.exists():
-            enum_files.add(const_file)
-        
-        # Read the source file to extract imports
+        # Read source code to find imports
         try:
             with open(source_file, 'r', encoding='utf-8') as f:
                 source_code = f.read()
-        except Exception as e:
-            print(f"Error reading {source_file}: {e}")
+        except Exception:
             return []
         
-        # Extract imports from the source code
+        # Extract imports
         imports = self._extract_imports(source_code)
         
-        # Check for potential enum imports
-        for module_path in imports:
-            # Check if this import might be an enum module
-            if 'const' in module_path.lower() or 'enum' in module_path.lower():
-                # Convert module path to file path
-                parts = module_path.split('.')
-                
-                # Try absolute path from project root
-                file_path = project_root.joinpath(*parts).with_suffix('.py')
-                if file_path.exists():
-                    enum_files.add(file_path)
-                
-                # Try relative path from source directory
+        # For each import, try to find the corresponding file
+        for import_name in imports:
+            # Skip standard library imports
+            if import_name in ['os', 'sys', 'json', 'time', 'datetime', 'typing', 'pathlib']:
+                continue
+            
+            # Convert import to file path
+            import_parts = import_name.split('.')
+            
+            # Try different combinations
+            for i in range(len(import_parts), 0, -1):
+                parts = import_parts[:i]
                 file_path = source_dir.joinpath(*parts).with_suffix('.py')
                 if file_path.exists():
                     enum_files.add(file_path)
@@ -710,91 +617,63 @@ class UniversalTestGenerator:
         
         return list(enum_files)
 
-    def _create_prompt(self, source_file: Path, source_code: str) -> str:
-        """Create a prompt for generating tests with model reference files."""
-        # Extract information
+    def create_prompt(self, source_file: Path, source_code: str) -> str:
+        """
+        Membuat prompt hybrid: struktur multi-stage MSPP + requirements dari prompt utama.
+        """
         uncovered_functions = self._extract_uncovered_functions(source_code)
         used_libraries = self._identify_used_libraries(source_code)
-        
-        # Find and extract model reference files
         model_reference_files = self.find_model_references(source_file)
-        
-        # Add enum references
         enum_reference_files = self.find_enum_references(source_file)
-        # Combine model and enum files, removing duplicates
         all_reference_files = list(set(model_reference_files + enum_reference_files))
-        
         model_reference_code = ""
-        
         if all_reference_files:
             model_reference_code = "\nMODELS AND TYPES:\n"
             for file_path in all_reference_files:
                 model_definitions = self.extract_model_definitions(file_path)
                 if model_definitions:
-                    # Use str(file_path) instead of trying to make it relative
-                    # This avoids the ValueError when paths can't be made relative
                     model_reference_code += f"\n# From {file_path}\n```python\n{model_definitions}\n```\n"
-        
-        # Extract function details
         function_details = self._extract_detailed_function_info(uncovered_functions)
-        
-        prompt = f"""Generate complete pytest tests for the code below.
+        prompt = f"""Buatlah tes pytest lengkap untuk kode di bawah ini menggunakan pendekatan multi-tahap.
 
-MODULE INFORMATION:
+TAHAP 1 - KONTEKSTUALISASI:
 - File: {source_file}
-- Module path: {self.module_name}
-- Test file path: {self.test_file_path}
-
-SOURCE CODE:
+- Path modul: {self.module_name}
+- Path file tes: {self.test_file_path}
+- Kode sumber:
 ```python
 {source_code}
 ```
+{model_reference_code}- Fungsi yang memerlukan tes:
+{function_details}- Library yang digunakan: {', '.join(used_libraries)}
 
-{model_reference_code}
+TAHAP 2 - DESAIN STRUKTUR TES:
+- Pilih framework pytest
+- Buat kerangka tes dengan fixture yang sesuai
+- Inisialisasi objek mock (Mock/AsyncMock dari unittest.mock)
+- Organisasi kelas tes dan impor yang diperlukan
 
-FUNCTIONS REQUIRING TESTS:
-{function_details}
+TAHAP 3 - IMPLEMENTASI LOGIKA TES:
+- Implementasikan assertion untuk semua skenario
+- Tangani kasus khusus dan error
+- Implementasi pola async (pytest.mark.asyncio, await, AsyncMock)
+- Setup perilaku mock (return_value, side_effect, context manager, iterator)
+- Validasi parameter dan hasil
 
-LIBRARY CONTEXT:
-- Used libraries: {', '.join(used_libraries)}
+TAHAP 4 - OPTIMASI & VALIDASI:
+- Optimalkan tes agar mudah dipelihara dan coverage maksimal
+- Validasi syntax dan kualitas kode
+- Pastikan tes siap diintegrasikan dan mengikuti praktik terbaik pytest
 
-REQUIREMENTS:
+PERSYARATAN:
+- Sertakan SEMUA field saat inisialisasi model (wajib & opsional)
+- Pastikan nama field sesuai dengan definisi model (case-sensitive)
+- Gunakan Mock/AsyncMock dari unittest.mock, atur return_value/side_effect SEBELUM digunakan
+- Untuk async: gunakan pytest.mark.asyncio, selalu await panggilan async, konfigurasi AsyncMock dengan benar
+- Untuk validasi: gunakan unittest.mock.ANY untuk parameter, perbandingan set untuk koleksi, uji struktur & tipe respons, uji pagination
+- Gunakan parametrize untuk variasi, pytest.raises untuk exception, dan kelompokkan tes dalam kelas jika logis
 
-## MODEL SETUP
-- Include EVERY field when initializing models (required and optional)
-- Verify field names exist in actual model definition (case-sensitive)
-- Ensure correct model class is used when similar names exist
-- Match exact field types and constraints from specifications
-
-## MOCKING STRATEGY
-- Import Mock/AsyncMock from unittest.mock
-- Set return_value/side_effect BEFORE using mocks
-- Use side_effect with exception instances (not classes)
-- For DNS testing:
-  - Always mock DNSResolver.query with proper SRV records
-  - Ensure DNS mocks are set up BEFORE HTTP client creation
-  - Use consistent hostnames between DNS and HTTP mocks
-
-## ASYNC HANDLING
-- Use pytest.mark.asyncio for tests with await expressions
-- Always await async calls (including mocked functions)
-- Properly configure AsyncMock with awaitable return values
-- Handle async context managers and iterators correctly
-
-## VALIDATION APPROACH
-- For URLs: Use unittest.mock.ANY for parameters or str(url) for exact matching
-- For collections: Avoid index-based assertions, find by key/property instead
-- For API responses: Test structure and types rather than exact values
-- Use set comparisons for unordered collections
-- Test pagination with both single and multi-page scenarios
-
-## PYTEST PRACTICES
-- Create appropriately scoped fixtures
-- Use parametrize for testing variations
-- Test exceptions with pytest.raises contextmanager
-- Group related tests in classes when logical
-
-Return only runnable pytest code with no explanations or markdown. The code must be immediately usable without any modifications.
+Kembalikan HANYA kode pytest yang dapat dijalankan tanpa penjelasan atau markdown. Kode harus dapat digunakan langsung tanpa modifikasi apa pun.
 """
         return prompt
     
@@ -855,367 +734,10 @@ Return only runnable pytest code with no explanations or markdown. The code must
         return tests_dir / test_filename
 
 
-class MSPPTestGenerator:
-    """Multi-Stage Prompt Processing Test Generator implementing single-call MSPP concept."""
-    
-    def __init__(self, 
-                 api_key: str,
-                 coverage_threshold: float = 80.0,
-                 model: str = "anthropic/claude-3.7-sonnet"):
-        """Initialize with configuration for single-call MSPP."""
-        if not api_key:
-            raise ValueError("API key is required")
-        
-        self.api_key = api_key
-        self.coverage_threshold = coverage_threshold
-        self.model = model
-        self.openai_client = self._setup_openai()
-        self.module_name = ""
-        self.test_file_path = None
-        self.api_logs = []
-        self.start_time = time.time()
-    
-    def _setup_openai(self):
-        """Configure OpenAI client for various providers."""
-        try:
-            if "openrouter" in self.api_key.lower() or os.getenv("OPENROUTER_API_KEY"):
-                return openai.OpenAI(
-                    api_key=self.api_key,
-                    base_url="https://openrouter.ai/api/v1"
-                )
-            return openai.OpenAI(api_key=self.api_key)
-        except Exception as e:
-            print(f"Error setting up OpenAI client: {e}")
-            raise
-    
-    def generate_test_with_msp(self, file_path: Path) -> str:
-        """Generate tests using single-call MSPP approach."""
-        if not file_path.exists():
-            raise FileNotFoundError(f"File not found: {file_path}")
-            
-        try:
-            # Establish context (same as before)
-            context = self._establish_context(file_path)
-            
-            # Single API call with multi-stage prompt
-            prompt = self._create_mspp_prompt(context)
-            
-            response = self.openai_client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": self._get_system_prompt()},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1,
-                top_p=0.95
-            )
-            
-            generated_code = response.choices[0].message.content
-            return self._clean_generated_code(generated_code)
-            
-        except Exception as e:
-            print(f"Error generating tests for {file_path}: {e}")
-            return ""
-    
-    def _create_mspp_prompt(self, context: dict) -> str:
-        """Create comprehensive MSPP prompt in single call."""
-        return f"""Generate complete pytest tests using Multi-Stage Prompt Processing approach.
-
-STAGE 1 - CONTEXT ESTABLISHMENT:
-MODULE INFORMATION:
-- File: {context['file_path']}
-- Module path: {context['module_name']}
-- Test file path: {context['test_file_path']}
-
-SOURCE CODE:
-```python
-{context['source_code']}
-```
-
-{context['model_reference_code']}
-
-FUNCTIONS REQUIRING TESTS:
-{context['function_details']}
-
-LIBRARY CONTEXT:
-- Used libraries: {context['libraries']}
-
-STAGE 2 - TEST STRUCTURE DESIGN:
-Design the test structure including:
-✓ Framework selection (pytest)
-✓ Test skeleton with appropriate fixtures
-✓ Mock object initialization patterns  
-✓ Test class organization
-✓ Import statements and dependencies
-
-STAGE 3 - TEST LOGIC IMPLEMENTATION:
-Implement comprehensive test logic:
-✓ Assertion strategies for all scenarios
-✓ Edge case handling and error conditions
-✓ Async pattern implementation (if needed)
-✓ Mock behavior definition and setup
-✓ Parameter validation testing
-
-STAGE 4 - REFINEMENT & OPTIMIZATION:
-Apply refinement techniques:
-✓ Error detection and correction
-✓ Test optimization for maintainability
-✓ Coverage maximization strategies
-✓ Code quality improvements
-✓ Performance considerations
-
-STAGE 5 - VALIDATION & INTEGRATION:
-Final validation steps:
-✓ Syntax validation
-✓ Quality checks
-✓ Integration readiness
-✓ Proper documentation
-✓ Best practices compliance
-
-REQUIREMENTS:
-
-## MODEL SETUP
-- Include EVERY field when initializing models (required and optional)
-- Verify field names exist in actual model definition (case-sensitive)
-- Ensure correct model class is used when similar names exist
-- Match exact field types and constraints from specifications
-
-## MOCKING STRATEGY
-- Import Mock/AsyncMock from unittest.mock
-- Set return_value/side_effect BEFORE using mocks
-- Use side_effect with exception instances (not classes)
-- For DNS testing:
-  - Always mock DNSResolver.query with proper SRV records
-  - Ensure DNS mocks are set up BEFORE HTTP client creation
-  - Use consistent hostnames between DNS and HTTP mocks
-
-## ASYNC HANDLING
-- Use pytest.mark.asyncio for tests with await expressions
-- Always await async calls (including mocked functions)
-- Properly configure AsyncMock with awaitable return values
-- Handle async context managers and iterators correctly
-
-## VALIDATION APPROACH
-- For URLs: Use unittest.mock.ANY for parameters or str(url) for exact matching
-- For collections: Avoid index-based assertions, find by key/property instead
-- For API responses: Test structure and types rather than exact values
-- Use set comparisons for unordered collections
-- Test pagination with both single and multi-page scenarios
-
-## PYTEST PRACTICES
-- Create appropriately scoped fixtures
-- Use parametrize for testing variations
-- Test exceptions with pytest.raises contextmanager
-- Group related tests in classes when logical
-
-Return ONLY the final, production-ready pytest code. No explanations, no markdown blocks, just pure Python code that can be immediately executed."""
-    
-    def _get_system_prompt(self) -> str:
-        """Get system prompt for the AI model."""
-        return """You are an expert Python test engineer specializing in pytest. You generate production-quality test code that follows best practices. Your tests are comprehensive, maintainable, and correct. You excel at testing complex systems including data models, async code, and external dependencies."""
-    
-    def _get_module_name(self, file_path: Path) -> str:
-        """Convert file path to importable module name."""
-        current_dir = Path.cwd()
-        
-        try:
-            rel_path = file_path.relative_to(current_dir)
-        except ValueError:
-            rel_path = file_path
-        
-        parts = list(rel_path.parts)
-        
-        # Handle src directory
-        if parts and parts[0] == "src":
-            parts.pop(0)
-        
-        # Remove .py extension
-        if parts and parts[-1].endswith('.py'):
-            parts[-1] = parts[-1][:-3]  # Remove .py extension
-        
-        return ".".join(parts)
-    
-    def _get_test_path(self, source_file: Path) -> Path:
-        """Determine where to save the test file."""
-        # Try to find tests directory
-        current_dir = Path.cwd()
-        tests_dir = current_dir / 'tests'
-        
-        if not tests_dir.exists():
-            tests_dir = current_dir / 'test'
-        
-        if not tests_dir.exists():
-            tests_dir = current_dir
-        
-        # Create test filename
-        test_filename = f"test_{source_file.stem}.py"
-        
-        # Try to match directory structure
-        try:
-            rel_path = source_file.relative_to(current_dir)
-            if len(rel_path.parts) > 1:
-                # Create directory structure in tests
-                subdir = tests_dir / Path(*rel_path.parts[:-1])
-                subdir.mkdir(parents=True, exist_ok=True)
-                return subdir / test_filename
-        except ValueError:
-            pass
-        
-        return tests_dir / test_filename
-    
-    def _clean_generated_code(self, code: str) -> str:
-        """Clean generated code by removing Markdown artifacts and other non-Python syntax."""
-        # Remove markdown code block delimiters if present
-        code = re.sub(r'```python\s*', '', code)
-        code = re.sub(r'```\s*$', '', code, flags=re.MULTILINE)
-        code = re.sub(r'```\s*', '', code)
-        
-        # Remove any leading/trailing whitespace
-        code = code.strip()
-        
-        # Check if first non-empty line looks like an import statement or function/class definition
-        lines = code.split('\n')
-        non_empty_lines = [line for line in lines if line.strip()]
-        
-        if non_empty_lines and not (
-            non_empty_lines[0].startswith('import ') or 
-            non_empty_lines[0].startswith('from ') or
-            non_empty_lines[0].startswith('def ') or
-            non_empty_lines[0].startswith('class ') or
-            non_empty_lines[0].startswith('#') or
-            non_empty_lines[0].startswith('@')
-        ):
-            # Try to find the start of actual Python code
-            for i, line in enumerate(non_empty_lines):
-                if (line.startswith('import ') or 
-                    line.startswith('from ') or 
-                    line.startswith('def ') or
-                    line.startswith('class ')):
-                    # Found the start of code, remove everything before it
-                    code = '\n'.join(lines[lines.index(line):])
-                    break
-        
-        # Remove any "Output:" or similar text at the end
-        code = re.sub(r'\nOutput:.*$', '', code, flags=re.DOTALL)
-        
-        return code
-    
-    def save_test_file(self, file_path: Path, test_code: str) -> Path:
-        """Save the generated test file."""
-        # Determine test file path if not already set
-        if not self.test_file_path:
-            self.test_file_path = self._get_test_path(file_path)
-        
-        # Create directories if needed
-        self.test_file_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Save the test file
-        try:
-            with open(self.test_file_path, 'w', encoding='utf-8') as f:
-                f.write(test_code)
-            print(f"Saved test file: {self.test_file_path}")
-            return self.test_file_path
-        except Exception as e:
-            print(f"Error saving test file: {e}")
-            return None
-    
-    def find_files_needing_tests(self, 
-                               coverage_data: Dict = None,
-                               target_files: List[str] = None) -> List[Path]:
-        """Find Python files that need tests."""
-        files_to_test = []
-        
-        # If specific files are requested
-        if target_files:
-            for file_path in target_files:
-                path = Path(file_path)
-                if path.exists() and path.suffix == '.py':
-                    files_to_test.append(path)
-            return files_to_test
-        
-        # Otherwise, find files based on coverage data
-        if coverage_data:
-            # Extract files with low coverage
-            for file_path, data in coverage_data.get('files', {}).items():
-                coverage_pct = data.get('summary', {}).get('percent_covered', 0)
-                if coverage_pct < self.coverage_threshold:
-                    files_to_test.append(Path(file_path))
-        else:
-            # Fallback: find all Python files
-            files_to_test = list(Path('.').rglob('*.py'))
-            # Exclude common directories
-            files_to_test = [f for f in files_to_test 
-                           if not any(part.startswith('.') or part == '__pycache__' 
-                                    or 'test' in part for part in f.parts)]
-        
-        return files_to_test
-
-    def _establish_context(self, file_path: Path) -> dict:
-        """Establish the initial context for test generation."""
-        # Read source code
-        with open(file_path, 'r', encoding='utf-8') as f:
-            source_code = f.read()
-        
-        # Set module name and test file path
-        self.module_name = self._get_module_name(file_path)
-        self.test_file_path = self._get_test_path(file_path)
-        
-        # Extract information
-        uncovered_functions = self._extract_uncovered_functions(source_code)
-        used_libraries = self._identify_used_libraries(source_code)
-        
-        # Find and extract model reference files
-        model_reference_files = self.find_model_references(file_path)
-        enum_reference_files = self.find_enum_references(file_path)
-        all_reference_files = list(set(model_reference_files + enum_reference_files))
-        
-        model_reference_code = ""
-        if all_reference_files:
-            model_reference_code = "\nMODELS AND TYPES:\n"
-            for ref_file in all_reference_files:
-                model_definitions = self.extract_model_definitions(ref_file)
-                if model_definitions:
-                    model_reference_code += f"\n# From {ref_file}\n```python\n{model_definitions}\n```\n"
-        
-        # Extract function details
-        function_details = self._extract_detailed_function_info(uncovered_functions)
-        
-        return {
-            "file_path": str(file_path),
-            "module_name": self.module_name,
-            "test_file_path": str(self.test_file_path),
-            "source_code": source_code,
-            "model_reference_code": model_reference_code,
-            "function_details": function_details,
-            "libraries": ", ".join(used_libraries)
-        }
-
-    def _create_hybrid_prompt(self, source_file: Path, source_code: str) -> str:
-        """
-        Membuat prompt hybrid: struktur multi-stage MSPP + requirements dari prompt utama.
-        """
-        uncovered_functions = self._extract_uncovered_functions(source_code)
-        used_libraries = self._identify_used_libraries(source_code)
-        model_reference_files = self.find_model_references(source_file)
-        enum_reference_files = self.find_enum_references(source_file)
-        all_reference_files = list(set(model_reference_files + enum_reference_files))
-        model_reference_code = ""
-        if all_reference_files:
-            model_reference_code = "\nMODELS AND TYPES:\n"
-            for file_path in all_reference_files:
-                model_definitions = self.extract_model_definitions(file_path)
-                if model_definitions:
-                    model_reference_code += f"\n# From {file_path}\n```python\n{model_definitions}\n```\n"
-        function_details = self._extract_detailed_function_info(uncovered_functions)
-        prompt = f"""Generate complete pytest tests for the code below using a multi-stage approach.\n\nSTAGE 1 - KONTEXTUALISASI:\n- File: {source_file}\n- Module path: {self.module_name}\n- Test file path: {self.test_file_path}\n- Source code:\n```python\n{source_code}\n```\n{model_reference_code}- Functions requiring tests:\n{function_details}- Used libraries: {', '.join(used_libraries)}\n\nSTAGE 2 - DESAIN STRUKTUR TEST:\n- Pilih framework pytest\n- Buat skeleton test dengan fixtures yang sesuai\n- Inisialisasi mock object (Mock/AsyncMock dari unittest.mock)\n- Organisasi test class dan import yang diperlukan\n\nSTAGE 3 - IMPLEMENTASI LOGIKA TEST:\n- Implementasikan assertion untuk semua skenario\n- Tangani edge case dan error\n- Implementasi async pattern (pytest.mark.asyncio, await, AsyncMock)\n- Setup mock behavior (return_value, side_effect, context manager, iterator)\n- Validasi parameter dan hasil\n\nSTAGE 4 - OPTIMASI & VALIDASI:\n- Optimasi test agar maintainable dan coverage maksimal\n- Validasi syntax dan kualitas kode\n- Pastikan test siap diintegrasikan dan mengikuti best practice pytest\n\nREQUIREMENTS:\n- Sertakan SEMUA field saat inisialisasi model (wajib & opsional)\n- Pastikan nama field sesuai dengan definisi model (case-sensitive)\n- Gunakan Mock/AsyncMock dari unittest.mock, set return_value/side_effect SEBELUM digunakan\n- Untuk async: gunakan pytest.mark.asyncio, selalu await async call, konfigurasi AsyncMock dengan benar\n- Untuk validasi: gunakan unittest.mock.ANY untuk parameter, set comparison untuk koleksi, test struktur & tipe response, test pagination\n- Gunakan parametrize untuk variasi, pytest.raises untuk exception, dan group test dalam class jika logis\n\nReturn ONLY runnable pytest code with no explanations or markdown. The code must be immediately usable without any modifications.\n"""
-        return prompt
-
-
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description='Generate tests for Python modules')
     parser.add_argument('--module', required=False, help='Specific module path to generate tests for')
-    parser.add_argument('--msp', action='store_true', help='Use Multi-Stage Prompt Processing')
     args = parser.parse_args()
     
     # Get configuration from environment
@@ -1236,11 +758,8 @@ def main():
         target_files_str = os.getenv("TARGET_FILES", "")
         target_files = [f.strip() for f in target_files_str.split(",") if f.strip()]
     
-    # Initialize appropriate generator
-    if args.msp:
-        generator = MSPPTestGenerator(api_key, coverage_threshold, model)
-    else:
-        generator = UniversalTestGenerator(api_key, coverage_threshold, model)
+    # Initialize generator
+    generator = UniversalTestGenerator(api_key, coverage_threshold, model)
     
     # Load coverage data if available
     coverage_data = None
@@ -1263,10 +782,7 @@ def main():
     # Generate tests for each file
     for file_path in files_to_test:
         print(f"Processing: {file_path}")
-        if args.msp:
-            test_code = generator.generate_test_with_msp(file_path)
-        else:
-            test_code = generator.generate_test_for_file(file_path)
+        test_code = generator.generate_test_for_file(file_path)
         
         if test_code:
             # Validate if the code is syntactically correct Python

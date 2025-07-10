@@ -164,7 +164,7 @@ class EnhancedExperimentDataCollector:
                 generation_script_data = {
                     "exists": True,
                     "model_used": self._extract_model_from_script(content),
-                    "prompt_strategy": "multi-stage" if "create_prompt" in content else "single-stage",
+                    "prompt_strategy": "hybrid-multi-stage" if "create_prompt" in content else "single-stage",
                     "handles_async": "async" in content.lower(),
                     "uses_refinement": "refine" in content.lower(),
                     "custom_features": self._extract_custom_features(content)
