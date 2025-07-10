@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create coverage summary markdown with improved file discovery and error handling"""
+"""Membuat ringkasan coverage markdown dengan penemuan file yang ditingkatkan dan penanganan error"""
 import json
 import os
 from pathlib import Path
@@ -7,14 +7,14 @@ from pathlib import Path
 
 def find_coverage_file(filename: str, search_locations: list) -> tuple:
     """
-    Find coverage file in multiple possible locations.
+    Mencari file coverage di berbagai lokasi yang mungkin.
     
     Args:
-        filename: Base filename to search for
-        search_locations: List of paths/patterns to try
+        filename: Nama file dasar yang dicari
+        search_locations: List path/pattern yang akan dicoba
         
     Returns:
-        Tuple of (found_path, data) or (None, None)
+        Tuple dari (found_path, data) atau (None, None)
     """
     for location in search_locations:
         path = Path(location)
@@ -35,7 +35,7 @@ def find_coverage_file(filename: str, search_locations: list) -> tuple:
 
 
 def get_coverage_value(data: dict) -> float:
-    """Extract coverage percentage from coverage data."""
+    """Mengekstrak persentase coverage dari data coverage."""
     if not data:
         return 0.0
     
@@ -55,7 +55,7 @@ def get_coverage_value(data: dict) -> float:
 
 
 def create_summary():
-    """Create coverage summary with robust file discovery."""
+    """Membuat ringkasan coverage dengan penemuan file yang robust."""
     
     # Get environment variables for file names
     initial_filename = os.getenv('COVERAGE_INITIAL', 'coverage-initial.json')

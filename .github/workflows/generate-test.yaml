@@ -5,11 +5,11 @@ on:
   workflow_dispatch:
     inputs:
       coverage_threshold:
-        description: 'Minimum coverage percentage to target'
+        description: 'Persentase coverage minimum yang ditargetkan'
         required: false
         default: '80'
       max_modules:
-        description: 'Maximum number of modules to analyze (0 = no limit)'
+        description: 'Jumlah maksimum modul yang dianalisis (0 = tidak terbatas)'
         required: false
         default: '5'
 
@@ -35,73 +35,73 @@ jobs:
         run: |
           echo "🔍 Checking prerequisites..."
           
-          # Create temp directory for this run
+          # Membuat direktori temp untuk run ini
           RUN_ID="${GITHUB_RUN_ID}_${GITHUB_RUN_NUMBER}"
           export TEMP_DIR="/tmp/test_gen_${RUN_ID}"
           mkdir -p "${TEMP_DIR}"
           echo "TEMP_DIR=${TEMP_DIR}" >> $GITHUB_ENV
           
-          # Check API key
+          # Cek API key
           if [ -z "$OPENROUTER_API_KEY" ]; then
-            echo "::error::OPENROUTER_API_KEY not set in secrets"
+            echo "::error::OPENROUTER_API_KEY tidak diset di secrets"
             exit 1
           fi
-          echo "✅ API key found"
+          echo "✅ API key ditemukan"
           
-          # Get input parameters with defaults
+          # Ambil parameter input dengan default
           THRESHOLD="${{ github.event.inputs.coverage_threshold }}"
           MAX_MODULES="${{ github.event.inputs.max_modules }}"
           
-          # Default values if empty
+          # Nilai default jika kosong
           THRESHOLD="${THRESHOLD:-80}"
           MAX_MODULES="${MAX_MODULES:-5}"
           
-          # Clean inputs - remove all non-numeric characters
+          # Bersihkan input - hapus semua karakter non-numerik
           THRESHOLD=$(echo "$THRESHOLD" | sed 's/[^0-9]//g')
           MAX_MODULES=$(echo "$MAX_MODULES" | sed 's/[^0-9]//g')
           
-          # Set defaults if empty after cleaning
+          # Set default jika kosong setelah pembersihan
           THRESHOLD="${THRESHOLD:-80}"
           MAX_MODULES="${MAX_MODULES:-5}"
           
-          # Validate coverage threshold (0-100)
+          # Validasi threshold coverage (0-100)
           if [ "$THRESHOLD" -lt 0 ] 2>/dev/null || [ "$THRESHOLD" -gt 100 ] 2>/dev/null; then
-            echo "::error::Invalid coverage_threshold: must be 0-100 (got $THRESHOLD)"
+            echo "::error::coverage_threshold tidak valid: harus 0-100 (dapat $THRESHOLD)"
             exit 1
           fi
           
-          # Validate max modules (>= 0)
+          # Validasi max modules (>= 0)
           if [ "$MAX_MODULES" -lt 0 ] 2>/dev/null; then
-            echo "::error::Invalid max_modules: must be >= 0 (got $MAX_MODULES)"
+            echo "::error::max_modules tidak valid: harus >= 0 (dapat $MAX_MODULES)"
             exit 1
           fi
           
-          # Export validated values
+          # Export nilai yang sudah divalidasi
           echo "VALIDATED_THRESHOLD=$THRESHOLD" >> $GITHUB_ENV
           echo "VALIDATED_MAX_MODULES=$MAX_MODULES" >> $GITHUB_ENV
           
-          echo "✅ Validated inputs:"
-          echo "  Coverage threshold: $THRESHOLD%"
+          echo "✅ Input yang divalidasi:"
+          echo "  Threshold coverage: $THRESHOLD%"
           echo "  Max modules: $MAX_MODULES"
           
-          # Check source directory
+          # Cek direktori source
           if [ ! -d "src" ] && [ ! -f "setup.py" ] && [ ! -f "pyproject.toml" ]; then
-            echo "::warning::No standard Python project structure found"
+            echo "::warning::Struktur project Python standar tidak ditemukan"
           fi
           
-          # Create necessary directories
+          # Buat direktori yang diperlukan
           mkdir -p tests coverage-final .github/scripts
           
-          # Initialize log files with headers
+          # Inisialisasi file log dengan header
           echo '[]' > api_interaction_logs.json
-          echo "# Test Generation Experiment Log" > generation_metrics.txt
+          echo "# Log Eksperimen Generasi Test" > generation_metrics.txt
           echo "Run ID: ${RUN_ID}" >> generation_metrics.txt
-          echo "Started: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> generation_metrics.txt
-          echo "Coverage Threshold: $THRESHOLD%" >> generation_metrics.txt
+          echo "Dimulai: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> generation_metrics.txt
+          echo "Threshold Coverage: $THRESHOLD%" >> generation_metrics.txt
           echo "Max Modules: $MAX_MODULES" >> generation_metrics.txt
           echo "---" >> generation_metrics.txt
           
-          echo "✅ Prerequisites validated"
+          echo "✅ Prerequisites divalidasi"
 
       - name: 🏗 Set up Poetry
         run: |
@@ -258,20 +258,25 @@ jobs:
           echo "0" > "${TEMP_DIR}/failed_count"
           START_TIME=$(date +%s)
           
-          # Process each module
-          echo "$MODULES" | jq -r '.[]' | while IFS= read -r MODULE; do
+          # Process each module - fix race condition by using array
+          SUCCESS_COUNT=0
+          FAILED_COUNT=0
+          
+          while IFS= read -r MODULE; do
             echo "🔄 Processing: $MODULE" | tee -a generation_metrics.txt
             
             if poetry run python .github/scripts/generate_test2.py --module "$MODULE"; then
-              SUCCESS=$(($(cat "${TEMP_DIR}/success_count") + 1))
-              echo "$SUCCESS" > "${TEMP_DIR}/success_count"
+              SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
               echo "  ✅ Success" | tee -a generation_metrics.txt
             else
-              FAILED=$(($(cat "${TEMP_DIR}/failed_count") + 1))
-              echo "$FAILED" > "${TEMP_DIR}/failed_count"
+              FAILED_COUNT=$((FAILED_COUNT + 1))
               echo "  ❌ Failed" | tee -a generation_metrics.txt
             fi
-          done
+          done < <(echo "$MODULES" | jq -r '.[]')
+          
+          # Save final counts
+          echo "$SUCCESS_COUNT" > "${TEMP_DIR}/success_count"
+          echo "$FAILED_COUNT" > "${TEMP_DIR}/failed_count"
           
           # Read final counts and trim newlines
           SUCCESS=$(cat "${TEMP_DIR}/success_count" 2>/dev/null || echo "0")

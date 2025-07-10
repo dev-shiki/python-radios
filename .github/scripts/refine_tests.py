@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """
-AI-powered test refiner that improves tests based on raw test failure output.
+Refiner test berbasis AI yang memperbaiki test berdasarkan output kegagalan test.
+Fokus pada sistem asinkron dan error handling.
 """
 
 import json
@@ -15,10 +16,10 @@ import openai
 
 
 class TestRefiner:
-    """Refine generated tests by passing raw test failure output to AI."""
+    """Memperbaiki test yang di-generate dengan memberikan output kegagalan test ke AI."""
     
     def __init__(self, api_key: str):
-        """Initialize the refiner."""
+        """Inisialisasi refiner."""
         self.api_key = api_key
         self.openai_client = self._setup_openai()
         self.refinement_log = {
@@ -39,13 +40,13 @@ class TestRefiner:
     
     def run_tests(self, test_path: str = None) -> str:
         """
-        Run tests and capture raw output.
+        Menjalankan test dan menangkap output mentah.
         
         Args:
-            test_path: Optional specific test file or directory to run
+            test_path: File atau direktori test spesifik yang opsional untuk dijalankan
             
         Returns:
-            Test output as string
+            Output test sebagai string
         """
         cmd = ["pytest", "-v", "-s", "--tb=short"]  # Added -s and --tb=short for better output
         if test_path:
@@ -55,12 +56,19 @@ class TestRefiner:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
-                text=True
+                text=True,
+                timeout=300  # 5 minute timeout
             )
             return result.stdout + result.stderr
+        except subprocess.TimeoutExpired:
+            print("Error: Test execution timed out after 5 minutes")
+            return "TIMEOUT: Test execution exceeded 5 minutes"
+        except FileNotFoundError:
+            print("Error: pytest not found. Please install pytest first.")
+            return "ERROR: pytest not found"
         except Exception as e:
             print(f"Error running tests: {e}")
-            return ""
+            return f"ERROR: {str(e)}"
     
     def get_failing_test_files(self, test_output: str) -> list:
         """

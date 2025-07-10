@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Find modules with low coverage"""
+"""Mencari modul dengan coverage rendah"""
 import json
 import sys
 
@@ -8,7 +8,7 @@ def find_low_coverage(threshold=80):
         with open('coverage-initial.json', 'r') as f:
             coverage_data = json.load(f)
     except Exception as e:
-        print(f"Error reading coverage data: {e}", file=sys.stderr)
+        print(f"Error membaca data coverage: {e}", file=sys.stderr)
         print("[]")
         return
     

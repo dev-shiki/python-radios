@@ -4,15 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       max_refinement_attempts:
-        description: 'Maximum refinement attempts for failing tests'
+        description: 'Jumlah maksimum percobaan refinement untuk test yang gagal'
         required: false
         default: '2'
       target_branch:
-        description: 'Branch to refine tests from'
+        description: 'Branch untuk melakukan refinement test'
         required: true
         default: 'main'
       run_id:
-        description: 'Run ID of the generate test workflow'
+        description: 'ID run dari workflow generate test'
         required: true
 
 env:
@@ -327,6 +327,9 @@ jobs:
           INITIAL_FAILURES=$(echo "$INITIAL_FAILURES" | tr -d '\n' | sed 's/^0*//' | xargs)
           INITIAL_FAILURES="${INITIAL_FAILURES:-0}"
           
+          # Set output variables
+          echo "initial_failures=$INITIAL_FAILURES" >> $GITHUB_OUTPUT
+          
           MAX_ATTEMPTS=${{ env.VALIDATED_MAX_ATTEMPTS }}
           CURRENT_FAILURES="$INITIAL_FAILURES"
           
@@ -535,35 +538,6 @@ jobs:
             }
           fi
 
-      - name: 💾 Upload refined test files as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: refined-test-files-${{ github.run_id }}
-          path: tests/
-          if-no-files-found: error
-
-      - name: 💾 Upload coverage files as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: refined-coverage-files-${{ github.run_id }}
-          path: |
-            coverage-initial.json
-            coverage-final.json
-            coverage-after-generation.json
-          if-no-files-found: error
-
-      - name: 💾 Upload experiment data as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: refined-experiment-data-${{ github.run_id }}
-          path: |
-            experiment_data_*.zip
-            *.json
-            *.log
-            *.txt
-            *.md
-          if-no-files-found: warn
-
       - name: 📝 Create workflow summary
         if: always()
         run: |
@@ -571,22 +545,63 @@ jobs:
           # Test Refinement Summary
           
           ## Overview
-          - **Initial Failures**: ${{ steps.refine.outputs.final_failures }}
-          - **Refinement Status**: ${{ steps.refine.outputs.status }}
+          - **Initial Failures**: ${{ steps.refine.outputs.initial_failures }}
           - **Final Failures**: ${{ steps.test-run.outputs.failure_count }}
+          - **Status**: ${{ steps.refine.outputs.status }}
           
           ## Configuration
           - **Max Refinement Attempts**: ${{ env.VALIDATED_MAX_ATTEMPTS }}
+          - **Target Branch**: ${{ github.event.inputs.target_branch }}
           
           ## Details
           EOF
           
+          if [ "${{ steps.refine.outputs.status }}" = "has_failures" ]; then
+            cat <<EOF >> $GITHUB_STEP_SUMMARY
+          - **Remaining Failures**: ${{ steps.test-run.outputs.failure_count }}
+          EOF
+          fi
+          
+          # Add coverage summary
+          if [ -f "COVERAGE_SUMMARY.md" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            cat COVERAGE_SUMMARY.md >> $GITHUB_STEP_SUMMARY
+          fi
+          
           # Add metrics
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Metrics" >> $GITHUB_STEP_SUMMARY
+          echo "## Refinement Metrics" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           tail -30 refinement_metrics.txt >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "No metrics"
           echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: 💾 Upload refined test files as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: refined-test-files-${{ github.run_id }}
+          path: tests/
+          if-no-files-found: error
+
+      - name: 💾 Upload refined coverage files as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: refined-coverage-files-${{ github.run_id }}
+          path: |
+            coverage-initial.json
+            coverage-final.json
+            coverage-after-generation.json
+          if-no-files-found: warn
+
+      - name: 💾 Upload refinement data as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: refinement-data-${{ github.run_id }}
+          path: |
+            refinement_metrics.txt
+            test-results*.log
+            refinement_attempt_*.log
+            COVERAGE_SUMMARY.md
+          if-no-files-found: warn
 
       - name: 🧹 Cleanup
         if: always()

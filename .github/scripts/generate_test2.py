@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 """
-AI-powered test generator that works with any Python project structure.
+Generator test berbasis AI yang bekerja dengan struktur project Python apapun.
+Fokus pada sistem asinkron dan coverage analysis.
 """
 
 import argparse
@@ -17,13 +18,13 @@ import pytest
 
 
 class UniversalTestGenerator:
-    """Simple, universal test generator for any Python project."""
+    """Generator test universal sederhana untuk project Python apapun."""
     
     def __init__(self, 
                  api_key: str,
                  coverage_threshold: float = 80.0,
                  model: str = "anthropic/claude-3.7-sonnet"):
-        """Initialize with minimal configuration."""
+        """Inisialisasi dengan konfigurasi minimal."""
         self.api_key = api_key
         self.coverage_threshold = coverage_threshold
         self.model = model
@@ -34,28 +35,42 @@ class UniversalTestGenerator:
         self.start_time = time.time()
     
     def _setup_openai(self):
-        """Configure OpenAI client for various providers."""
-        # Support multiple providers by checking API key pattern
+        """Konfigurasi client OpenAI untuk berbagai provider."""
+        # Validasi API key
+        if not self.api_key or self.api_key.strip() == "":
+            raise ValueError("API key diperlukan tetapi tidak disediakan")
+        
+        # Dukungan multiple provider dengan pengecekan pattern API key
         if "openrouter" in self.api_key.lower() or os.getenv("OPENROUTER_API_KEY"):
-            return openai.OpenAI(
-                api_key=self.api_key,
-                base_url="https://openrouter.ai/api/v1"
-            )
-        # Default to OpenAI
-        return openai.OpenAI(api_key=self.api_key)
+            try:
+                client = openai.OpenAI(
+                    api_key=self.api_key,
+                    base_url="https://openrouter.ai/api/v1"
+                )
+                # Skip test API key untuk menghindari masalah rate limiting
+                return client
+            except Exception as e:
+                raise ValueError(f"API key OpenRouter tidak valid: {e}")
+        else:
+            try:
+                client = openai.OpenAI(api_key=self.api_key)
+                # Skip test API key untuk menghindari masalah rate limiting
+                return client
+            except Exception as e:
+                raise ValueError(f"API key OpenAI tidak valid: {e}")
     
     def find_files_needing_tests(self, 
                                coverage_data: Dict = None,
                                target_files: List[str] = None) -> List[Path]:
         """
-        Find Python files that need tests.
+        Mencari file Python yang memerlukan test.
         
         Args:
-            coverage_data: Coverage data from pytest-cov
-            target_files: Specific files to target
+            coverage_data: Data coverage dari pytest-cov
+            target_files: File spesifik yang ditargetkan
         
         Returns:
-            List of Python file paths that need tests
+            List path file Python yang memerlukan test
         """
         files_to_test = []
         
@@ -1174,6 +1189,26 @@ Return ONLY the final, production-ready pytest code. No explanations, no markdow
             "function_details": function_details,
             "libraries": ", ".join(used_libraries)
         }
+
+    def _create_hybrid_prompt(self, source_file: Path, source_code: str) -> str:
+        """
+        Membuat prompt hybrid: struktur multi-stage MSPP + requirements dari prompt utama.
+        """
+        uncovered_functions = self._extract_uncovered_functions(source_code)
+        used_libraries = self._identify_used_libraries(source_code)
+        model_reference_files = self.find_model_references(source_file)
+        enum_reference_files = self.find_enum_references(source_file)
+        all_reference_files = list(set(model_reference_files + enum_reference_files))
+        model_reference_code = ""
+        if all_reference_files:
+            model_reference_code = "\nMODELS AND TYPES:\n"
+            for file_path in all_reference_files:
+                model_definitions = self.extract_model_definitions(file_path)
+                if model_definitions:
+                    model_reference_code += f"\n# From {file_path}\n```python\n{model_definitions}\n```\n"
+        function_details = self._extract_detailed_function_info(uncovered_functions)
+        prompt = f"""Generate complete pytest tests for the code below using a multi-stage approach.\n\nSTAGE 1 - KONTEXTUALISASI:\n- File: {source_file}\n- Module path: {self.module_name}\n- Test file path: {self.test_file_path}\n- Source code:\n```python\n{source_code}\n```\n{model_reference_code}- Functions requiring tests:\n{function_details}- Used libraries: {', '.join(used_libraries)}\n\nSTAGE 2 - DESAIN STRUKTUR TEST:\n- Pilih framework pytest\n- Buat skeleton test dengan fixtures yang sesuai\n- Inisialisasi mock object (Mock/AsyncMock dari unittest.mock)\n- Organisasi test class dan import yang diperlukan\n\nSTAGE 3 - IMPLEMENTASI LOGIKA TEST:\n- Implementasikan assertion untuk semua skenario\n- Tangani edge case dan error\n- Implementasi async pattern (pytest.mark.asyncio, await, AsyncMock)\n- Setup mock behavior (return_value, side_effect, context manager, iterator)\n- Validasi parameter dan hasil\n\nSTAGE 4 - OPTIMASI & VALIDASI:\n- Optimasi test agar maintainable dan coverage maksimal\n- Validasi syntax dan kualitas kode\n- Pastikan test siap diintegrasikan dan mengikuti best practice pytest\n\nREQUIREMENTS:\n- Sertakan SEMUA field saat inisialisasi model (wajib & opsional)\n- Pastikan nama field sesuai dengan definisi model (case-sensitive)\n- Gunakan Mock/AsyncMock dari unittest.mock, set return_value/side_effect SEBELUM digunakan\n- Untuk async: gunakan pytest.mark.asyncio, selalu await async call, konfigurasi AsyncMock dengan benar\n- Untuk validasi: gunakan unittest.mock.ANY untuk parameter, set comparison untuk koleksi, test struktur & tipe response, test pagination\n- Gunakan parametrize untuk variasi, pytest.raises untuk exception, dan group test dalam class jika logis\n\nReturn ONLY runnable pytest code with no explanations or markdown. The code must be immediately usable without any modifications.\n"""
+        return prompt
 
 
 def main():

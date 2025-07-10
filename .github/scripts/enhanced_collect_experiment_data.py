@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Complete Data Collection for Test Generation Experiment - Enhanced Version
-Collects ALL required data points from the experiment
+Pengumpulan Data Lengkap untuk Eksperimen Generasi Test - Versi Enhanced
+Mengumpulkan SEMUA data point yang diperlukan dari eksperimen
 """
 
 import json
@@ -20,7 +20,7 @@ class EnhancedExperimentDataCollector:
         self.data_dir = Path(f"experiment_data_{self.timestamp}")
         self.data_dir.mkdir(exist_ok=True)
         
-        # Ensure all subdirectories exist
+        # Memastikan semua subdirektori ada
         for subdir in ["metrics", "logs", "artifacts", "visualizations", "generated_tests"]:
             (self.data_dir / subdir).mkdir(exist_ok=True)
         
@@ -39,8 +39,8 @@ class EnhancedExperimentDataCollector:
         }
     
     def collect_project_baseline(self):
-        """1. Collect comprehensive baseline project data"""
-        print("📊 [1/10] Collecting project baseline data...")
+        """1. Mengumpulkan data baseline project yang komprehensif"""
+        print("📊 [1/10] Mengumpulkan data baseline project...")
         
         # Project structure analysis
         src_files = list(Path("src").rglob("*.py"))

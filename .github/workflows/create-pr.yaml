@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       run_id:
-        description: 'Run ID of the refine-tests workflow'
+        description: 'ID run dari workflow refine-tests'
         required: true
       target_branch:
-        description: 'Branch to create PR against'
+        description: 'Branch untuk membuat Pull Request'
         required: true
         default: 'main'
         type: choice
